@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "markdocs": {
+      "command": "node",
+      "args": ["cli/bundle/markdocs-mcp.cjs"],
+      "env": {
+        "MARKDOCS_API_KEY": "mdk_017860e5e9da9f27adf9dfc17881340f15b5b0021cc88527",
+        "MARKDOCS_URL": "http://localhost:3001"
+      }
+    }
+  }
+}
