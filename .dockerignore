@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.env.local
+.env.production
+cli/node_modules
+cli/bundle
+cli/dist
+supabase/.temp
+*.tsbuildinfo
