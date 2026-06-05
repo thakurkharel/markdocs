@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function DocsPage() {
   return (
-    <article className="prose prose-invert max-w-none">
+    <article className="prose dark:prose-invert max-w-none">
       <h1>MarkDocs Documentation</h1>
       <p className="lead">
         MarkDocs is a collaborative markdown editor with real-time multiplayer editing,
@@ -12,8 +12,8 @@ export default function DocsPage() {
       <h2>Getting Started</h2>
       <ol>
         <li>
-          <strong>Sign up</strong> at the{" "}
-          <Link href="/">landing page</Link> using your email or social login.
+          <strong>Sign up</strong> at{" "}
+          <Link href="/sign-up">markdocs.sh</Link> using your email or social login.
         </li>
         <li>
           Create your first document from the{" "}
@@ -73,27 +73,45 @@ export default function DocsPage() {
             Connect AI agents (Claude, GPT, etc.) to MarkDocs via Model Context Protocol.
           </p>
         </Link>
+        <Link
+          href="/docs/agent-setup"
+          className="group rounded-lg border border-border bg-card p-5 transition-colors hover:border-primary/30 sm:col-span-2"
+        >
+          <h3 className="text-base font-semibold text-foreground group-hover:text-primary">
+            Agent Setup
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            One-line install for AI agents. Paste a prompt and your agent configures itself.
+          </p>
+        </Link>
       </div>
 
-      <h2>API Authentication</h2>
+      <h2>Authentication</h2>
       <p>
         MarkDocs supports two authentication methods:
       </p>
       <ul>
         <li>
-          <strong>Browser sessions</strong> — Handled automatically by Clerk when you sign in.
+          <strong>Browser sessions</strong> — Handled automatically when you sign in.
         </li>
         <li>
-          <strong>API keys</strong> — For CLI and MCP access. Set the{" "}
-          <code>MARKDOCS_API_KEY</code> environment variable on both the server and client.
+          <strong>API keys</strong> — For CLI and MCP access. Generate a key from{" "}
+          <Link href="/settings">Settings</Link>, then set it as an environment variable.
         </li>
       </ul>
-      <pre><code>{`# Server .env
-MARKDOCS_API_KEY=your-secret-key
-MARKDOCS_SERVICE_USER_ID=user_xxx  # Your Clerk user ID
 
-# Client
-export MARKDOCS_API_KEY=your-secret-key`}</code></pre>
+      <h3>Setting up API access</h3>
+      <ol>
+        <li>Go to <Link href="/settings">Settings</Link> in your dashboard.</li>
+        <li>Click <strong>New Key</strong> and copy the generated key.</li>
+        <li>Add it to your shell environment:</li>
+      </ol>
+      <pre><code>{`export MARKDOCS_API_KEY=mdk_your_key_here
+export MARKDOCS_URL=https://markdocs.sh`}</code></pre>
+      <p>
+        See the <Link href="/docs/cli">CLI</Link> and <Link href="/docs/mcp">MCP</Link> docs
+        for full setup instructions.
+      </p>
     </article>
   );
 }

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { resolveUsers } from "@/lib/users";
+import { logEvent } from "@/lib/provenance";
+import { createYjsState } from "@/lib/yjs-utils";
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -17,13 +20,18 @@ export async function GET(request: NextRequest) {
           { collaborators: { some: { userId } } },
         ],
       },
-      include: {
-        creator: { select: { id: true, name: true, avatarUrl: true } },
-      },
       orderBy: { updatedAt: "desc" },
     });
 
-    return NextResponse.json(documents);
+    const userIds = [...new Set(documents.map((d) => d.creatorId))];
+    const users = await resolveUsers(userIds);
+
+    const enriched = documents.map((doc) => ({
+      ...doc,
+      creator: users.get(doc.creatorId) || { id: doc.creatorId, name: null, avatarUrl: null },
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch documents" },
@@ -34,13 +42,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
-    const { title } = body;
+    const { title, content } = body;
 
     if (!title) {
       return NextResponse.json(
@@ -79,12 +87,29 @@ export async function POST(request: NextRequest) {
         creatorId: userId,
         orgId: orgMember!.orgId,
       },
-      include: {
-        creator: { select: { id: true, name: true, avatarUrl: true } },
-      },
     });
 
-    return NextResponse.json(document, { status: 201 });
+    // Write initial content as a Yjs snapshot if provided
+    if (content) {
+      const state = Buffer.from(createYjsState(content));
+      await prisma.documentSnapshot.create({
+        data: { documentId: document.id, yjsState: state },
+      });
+    }
+
+    logEvent({
+      documentId: document.id,
+      authorId: userId,
+      action: "document.created",
+      source,
+      metadata: { title },
+    });
+
+    const users = await resolveUsers([userId]);
+    return NextResponse.json({
+      ...document,
+      creator: users.get(userId) || { id: userId, name: null, avatarUrl: null },
+    }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to create document" },

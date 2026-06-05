@@ -1,9 +1,11 @@
+import Link from "next/link";
+
 export default function MCPDocsPage() {
   return (
-    <article className="prose prose-invert max-w-none">
+    <article className="prose dark:prose-invert max-w-none">
       <h1>MCP Server Setup</h1>
       <p className="lead">
-        Connect AI agents like Claude, GPT, and others to MarkDocs using the
+        Connect AI agents like Claude to MarkDocs using the
         Model Context Protocol (MCP). Your AI can create documents, leave comments,
         make suggestions, and review edit history.
       </p>
@@ -18,62 +20,53 @@ export default function MCPDocsPage() {
 
       <h2>Quick Setup</h2>
 
-      <h3>1. Set your API key</h3>
+      <h3>1. Install the CLI</h3>
+      <pre><code>{`curl -fsSL https://markdocs.sh/install.sh | bash`}</code></pre>
+
+      <h3>2. Get your API key</h3>
       <p>
-        Add a <code>MARKDOCS_API_KEY</code> to your server&apos;s <code>.env</code> file
-        and set the same key in your environment:
+        Go to <Link href="/settings">Settings</Link> in your MarkDocs dashboard and create an API key.
+        You{"'"}ll need this for the MCP server configuration.
       </p>
-      <pre><code>{`# Server .env
-MARKDOCS_API_KEY=mdk_your_secret_key_here
-MARKDOCS_SERVICE_USER_ID=user_2x...  # Your Clerk user ID
 
-# Your shell
-export MARKDOCS_API_KEY=mdk_your_secret_key_here
-export MARKDOCS_URL=http://localhost:3001`}</code></pre>
-
-      <h3>2. Configure Claude Desktop</h3>
+      <h3>3. Configure Claude Desktop</h3>
       <p>
         Add this to your <code>claude_desktop_config.json</code>:
       </p>
       <pre><code>{`{
   "mcpServers": {
     "markdocs": {
-      "command": "npx",
-      "args": ["tsx", "/path/to/markdocs-cli/src/mcp.ts"],
+      "command": "markdocs-mcp",
       "env": {
-        "MARKDOCS_API_KEY": "mdk_your_secret_key_here",
-        "MARKDOCS_URL": "http://localhost:3001"
+        "MARKDOCS_API_KEY": "mdk_your_key_here",
+        "MARKDOCS_URL": "https://markdocs.sh"
       }
     }
   }
 }`}</code></pre>
 
-      <h3>3. Configure Claude Code</h3>
+      <h3>4. Configure Claude Code</h3>
       <p>
-        Add to your project&apos;s <code>.mcp.json</code>:
+        Add to your project{"'"}s <code>.mcp.json</code>:
       </p>
       <pre><code>{`{
   "mcpServers": {
     "markdocs": {
-      "command": "npx",
-      "args": ["tsx", "./markdocs-cli/src/mcp.ts"],
+      "command": "markdocs-mcp",
       "env": {
-        "MARKDOCS_API_KEY": "mdk_your_secret_key_here",
-        "MARKDOCS_URL": "http://localhost:3001"
+        "MARKDOCS_API_KEY": "mdk_your_key_here",
+        "MARKDOCS_URL": "https://markdocs.sh"
       }
     }
   }
 }`}</code></pre>
 
-      <h3>4. Other MCP clients</h3>
+      <h3>5. Other MCP clients</h3>
       <p>
         Any MCP-compatible client can connect using stdio transport:
       </p>
       <pre><code>{`# Run the MCP server directly
-MARKDOCS_API_KEY=your-key npx tsx cli/src/mcp.ts
-
-# Or via the CLI
-MARKDOCS_API_KEY=your-key markdocs mcp`}</code></pre>
+MARKDOCS_API_KEY=mdk_your_key MARKDOCS_URL=https://markdocs.sh markdocs mcp`}</code></pre>
 
       <h2>Available Tools</h2>
 
@@ -164,44 +157,20 @@ MARKDOCS_API_KEY=your-key markdocs mcp`}</code></pre>
         </table>
       </div>
 
-      <h2>Example: AI Code Review</h2>
-      <p>
-        Once connected, your AI agent can do things like:
-      </p>
-      <pre><code>{`// Agent reads the document
-const doc = await markdocs.get_document({ id: "abc-123" });
-
-// Agent leaves a comment
-await markdocs.add_comment({
-  document_id: "abc-123",
-  content: "Consider using a more descriptive variable name here.",
-  from_pos: 142,
-  to_pos: 148,
-});
-
-// Agent suggests a change
-await markdocs.add_suggestion({
-  document_id: "abc-123",
-  original_text: "const x = getData();",
-  suggested_text: "const userData = fetchUserProfile();",
-  from_pos: 142,
-  to_pos: 162,
-});`}</code></pre>
-
       <h2>Architecture</h2>
       <pre><code>{`┌─────────────────┐     stdio      ┌─────────────────┐
 │  AI Agent       │ ◄────────────► │  MCP Server     │
-│  (Claude, etc.) │                │  (cli/src/mcp)  │
+│  (Claude, etc.) │                │  (markdocs-mcp) │
 └─────────────────┘                └────────┬────────┘
-                                            │ HTTP + API Key
+                                            │ HTTPS + API Key
                                    ┌────────▼────────┐
                                    │  MarkDocs API   │
-                                   │  (Next.js)      │
+                                   │  markdocs.sh    │
                                    └────────┬────────┘
                                             │ Prisma
                                    ┌────────▼────────┐
-                                   │  Supabase       │
-                                   │  (PostgreSQL)   │
+                                   │  PostgreSQL     │
+                                   │                 │
                                    └─────────────────┘`}</code></pre>
     </article>
   );

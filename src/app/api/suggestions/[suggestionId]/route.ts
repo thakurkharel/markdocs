@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { resolveUsers } from "@/lib/users";
+import { logEvent } from "@/lib/provenance";
+import { notifyChange } from "@/lib/realtime";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ suggestionId: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -16,14 +19,7 @@ export async function PATCH(
     const body = await request.json();
     const { status } = body;
 
-    if (!status) {
-      return NextResponse.json(
-        { error: "status is required" },
-        { status: 400 }
-      );
-    }
-
-    if (status !== "accepted" && status !== "rejected") {
+    if (!status || (status !== "accepted" && status !== "rejected")) {
       return NextResponse.json(
         { error: "status must be 'accepted' or 'rejected'" },
         { status: 400 }
@@ -37,23 +33,34 @@ export async function PATCH(
         resolvedBy: userId,
         resolvedAt: new Date(),
       },
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-        resolver: { select: { id: true, name: true, avatarUrl: true } },
+    });
+
+    logEvent({
+      documentId: suggestion.documentId,
+      authorId: userId,
+      action: status === "accepted" ? "suggestion.accepted" : "suggestion.rejected",
+      source,
+      metadata: {
+        suggestionId,
+        originalText: suggestion.originalText,
+        suggestedText: suggestion.suggestedText,
       },
     });
 
-    return NextResponse.json(suggestion);
+    notifyChange(suggestion.documentId, "suggestions");
+
+    const userIds = [suggestion.authorId, suggestion.resolvedBy].filter(Boolean) as string[];
+    const users = await resolveUsers(userIds);
+
+    return NextResponse.json({
+      ...suggestion,
+      author: users.get(suggestion.authorId) || { id: suggestion.authorId, name: null, avatarUrl: null },
+      resolver: suggestion.resolvedBy ? users.get(suggestion.resolvedBy) || null : null,
+    });
   } catch (error: any) {
     if (error?.code === "P2025") {
-      return NextResponse.json(
-        { error: "Suggestion not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Suggestion not found" }, { status: 404 });
     }
-    return NextResponse.json(
-      { error: "Failed to update suggestion" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to update suggestion" }, { status: 500 });
   }
 }

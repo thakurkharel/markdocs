@@ -9,27 +9,49 @@ datasource db {
   extensions = [pgcrypto]
 }
 
-// ── Users (synced from Clerk) ────────────────────────────────────────────────
+// ── Users ────────────────────────────────────────────────────────────────────
 
 model User {
-  id        String   @id // Clerk user ID (e.g. "user_2x...")
-  email     String   @unique
-  name      String?
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  // Relations
-  memberships     OrgMember[]
-  documents       Document[]        @relation("DocumentCreator")
-  collaborations  DocumentCollaborator[]
-  comments        Comment[]
-  commentReplies  Comment[]         @relation("CommentResolver")
-  suggestions     Suggestion[]      @relation("SuggestionAuthor")
-  suggestionsResolved Suggestion[]  @relation("SuggestionResolver")
-  editHistory     EditHistory[]
+  id           String    @id @default(uuid()) @db.Uuid
+  handle       String    @unique
+  name         String?
+  passwordHash String    @map("password_hash")
+  avatarUrl    String?   @map("avatar_url")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("users")
+}
+
+// ── Invites ──────────────────────────────────────────────────────────────────
+
+model Invite {
+  id        String    @id @default(uuid()) @db.Uuid
+  code      String    @unique
+  createdBy String    @map("created_by")
+  claimedBy String?   @map("claimed_by")
+  claimedAt DateTime? @map("claimed_at") @db.Timestamptz
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("invites")
+}
+
+// ── API Keys ─────────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") // User ID
+  name      String    @default("Default")
+  keyHash   String    @unique @map("key_hash")
+  prefix    String
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+  expiresAt DateTime?  @map("expires_at") @db.Timestamptz
+  revokedAt DateTime?  @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId])
+  @@map("api_keys")
 }
 
 // ── Organizations (multi-tenant workspaces) ──────────────────────────────────
@@ -42,7 +64,6 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  // Relations
   members   OrgMember[]
   documents Document[]
 
@@ -52,12 +73,11 @@ model Organization {
 model OrgMember {
   id        String   @id @default(uuid()) @db.Uuid
   orgId     String   @map("org_id") @db.Uuid
-  userId    String   @map("user_id")
-  role      String   @default("member") // owner, admin, member, viewer
+  userId    String   @map("user_id") // User ID
+  role      String   @default("member")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, userId])
   @@index([userId])
@@ -69,23 +89,20 @@ model OrgMember {
 model Document {
   id         String    @id @default(uuid()) @db.Uuid
   orgId      String    @map("org_id") @db.Uuid
-  creatorId  String    @map("creator_id")
+  creatorId  String    @map("creator_id") // User ID
   title      String
-  visibility String    @default("org") // private, org, public
+  visibility String    @default("org")
   archivedAt DateTime? @map("archived_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  // Relations
   org           Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  creator       User                  @relation("DocumentCreator", fields: [creatorId], references: [id])
   collaborators DocumentCollaborator[]
   snapshots     DocumentSnapshot[]
   comments      Comment[]
   suggestions   Suggestion[]
   history       EditHistory[]
 
-  // Composite index: list docs in an org, sorted by updated, excluding archived
   @@index([orgId, updatedAt(sort: Desc)])
   @@index([creatorId])
   @@map("documents")
@@ -94,12 +111,11 @@ model Document {
 model DocumentCollaborator {
   id         String   @id @default(uuid()) @db.Uuid
   documentId String   @map("document_id") @db.Uuid
-  userId     String   @map("user_id")
-  role       String   @default("editor") // editor, commenter, viewer
+  userId     String   @map("user_id") // User ID
+  role       String   @default("editor")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([documentId, userId])
   @@index([userId])
@@ -117,7 +133,6 @@ model DocumentSnapshot {
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  // We only keep latest snapshot per doc, but index for fast lookup
   @@index([documentId, createdAt(sort: Desc)])
   @@map("document_snapshots")
 }
@@ -127,26 +142,22 @@ model DocumentSnapshot {
 model Comment {
   id         String    @id @default(uuid()) @db.Uuid
   documentId String    @map("document_id") @db.Uuid
-  authorId   String    @map("author_id")
-  parentId   String?   @map("parent_id") @db.Uuid // null = top-level, set = reply
+  authorId   String    @map("author_id") // User ID
+  parentId   String?   @map("parent_id") @db.Uuid
   content    String
   fromPos    Int       @map("from_pos")
   toPos      Int       @map("to_pos")
   resolved   Boolean   @default(false)
-  resolvedBy String?   @map("resolved_by")
+  resolvedBy String?   @map("resolved_by") // User ID
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   resolvedAt DateTime? @map("resolved_at") @db.Timestamptz
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  author   User     @relation(fields: [authorId], references: [id])
-  resolver User?    @relation("CommentResolver", fields: [resolvedBy], references: [id])
   parent   Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies  Comment[] @relation("CommentReplies")
 
-  // Composite: unresolved comments for a doc (hot path)
   @@index([documentId, resolved, createdAt(sort: Desc)])
-  // Fast thread lookups
   @@index([parentId])
   @@map("comments")
 }
@@ -156,21 +167,18 @@ model Comment {
 model Suggestion {
   id            String    @id @default(uuid()) @db.Uuid
   documentId    String    @map("document_id") @db.Uuid
-  authorId      String    @map("author_id")
+  authorId      String    @map("author_id") // User ID
   originalText  String    @map("original_text")
   suggestedText String    @map("suggested_text")
   fromPos       Int       @map("from_pos")
   toPos         Int       @map("to_pos")
-  status        String    @default("pending") // pending, accepted, rejected
-  resolvedBy    String?   @map("resolved_by")
+  status        String    @default("pending")
+  resolvedBy    String?   @map("resolved_by") // User ID
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
   resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  author   User     @relation("SuggestionAuthor", fields: [authorId], references: [id])
-  resolver User?    @relation("SuggestionResolver", fields: [resolvedBy], references: [id])
 
-  // Composite: pending suggestions for a doc (hot path)
   @@index([documentId, status, createdAt(sort: Desc)])
   @@map("suggestions")
 }
@@ -180,15 +188,15 @@ model Suggestion {
 model EditHistory {
   id         String   @id @default(uuid()) @db.Uuid
   documentId String   @map("document_id") @db.Uuid
-  authorId   String   @map("author_id")
+  authorId   String   @map("author_id") // User ID
   action     String
   diff       String?
+  source     String   @default("web") // "web" | "api" | "mcp" | "system"
+  metadata   Json?    // Structured event data (e.g. old/new title, comment content)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  author   User     @relation(fields: [authorId], references: [id])
 
-  // Composite: history for a doc sorted by time
   @@index([documentId, createdAt(sort: Desc)])
   @@map("edit_history")
 }

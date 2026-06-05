@@ -4,6 +4,7 @@ const NAV = [
   { href: "/docs", label: "Overview" },
   { href: "/docs/cli", label: "CLI" },
   { href: "/docs/mcp", label: "MCP Server" },
+  { href: "/docs/agent-setup", label: "Agent Setup" },
 ];
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {

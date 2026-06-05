@@ -1,6 +1,8 @@
+import Link from "next/link";
+
 export default function CLIDocsPage() {
   return (
-    <article className="prose prose-invert max-w-none">
+    <article className="prose dark:prose-invert max-w-none">
       <h1>CLI Reference</h1>
       <p className="lead">
         The MarkDocs CLI lets you manage documents, comments, and suggestions directly
@@ -8,19 +10,25 @@ export default function CLIDocsPage() {
       </p>
 
       <h2>Installation</h2>
-      <pre><code>{`# One-line install
-curl -fsSL https://markdocs.sh/install.sh | bash`}</code></pre>
-      <p>Or install manually:</p>
-      <pre><code>{`git clone https://github.com/thakurkharel/markdocs-cli.git
-cd markdocs-cli && npm install && npm link`}</code></pre>
+      <pre><code>{`curl -fsSL https://markdocs.sh/install.sh | bash`}</code></pre>
 
-      <h2>Configuration</h2>
-      <p>Set these environment variables:</p>
-      <pre><code>{`# Required: API key for authentication
-export MARKDOCS_API_KEY=your-api-key
+      <p>
+        Requires Node.js 18 or later. The installer downloads pre-built binaries
+        to <code>/usr/local/bin</code>.
+      </p>
 
-# Optional: Server URL (defaults to http://localhost:3001)
-export MARKDOCS_URL=https://your-markdocs-instance.com`}</code></pre>
+      <h2>Setup</h2>
+      <ol>
+        <li>
+          <Link href="/sign-up">Create an account</Link> if you haven{"'"}t already.
+        </li>
+        <li>
+          Go to <Link href="/settings">Settings</Link> and create an API key.
+        </li>
+        <li>Add to your shell profile (<code>~/.zshrc</code>, <code>~/.bashrc</code>, etc.):</li>
+      </ol>
+      <pre><code>{`export MARKDOCS_API_KEY=mdk_your_key_here
+export MARKDOCS_URL=https://markdocs.sh`}</code></pre>
 
       <h2>Commands</h2>
 

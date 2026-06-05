@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { logEvent } from "@/lib/provenance";
+import { notifyChange } from "@/lib/realtime";
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ commentId: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -35,6 +37,16 @@ export async function DELETE(
     await prisma.comment.delete({
       where: { id: commentId },
     });
+
+    logEvent({
+      documentId: comment.documentId,
+      authorId: userId,
+      action: "comment.deleted",
+      source,
+      metadata: { commentId, content: comment.content },
+    });
+
+    notifyChange(comment.documentId, "comments");
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

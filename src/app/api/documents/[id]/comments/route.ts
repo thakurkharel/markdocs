@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { resolveUsers, resolveUser } from "@/lib/users";
+import { logEvent } from "@/lib/provenance";
+import { notifyChange } from "@/lib/realtime";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -19,32 +22,28 @@ export async function GET(
 
     const where: any = { documentId: id };
 
-    if (resolved === "true") {
-      where.resolved = true;
-    } else if (resolved === "false") {
-      where.resolved = false;
-    }
+    if (resolved === "true") where.resolved = true;
+    else if (resolved === "false") where.resolved = false;
 
-    if (parentId) {
-      where.parentId = parentId;
-    } else if (parentId === null && searchParams.has("parentId")) {
-      where.parentId = null;
-    }
+    if (parentId) where.parentId = parentId;
+    else if (parentId === null && searchParams.has("parentId")) where.parentId = null;
 
     const comments = await prisma.comment.findMany({
       where,
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
       orderBy: { createdAt: "asc" },
     });
 
-    return NextResponse.json(comments);
+    const userIds = [...new Set(comments.map((c) => c.authorId))];
+    const users = await resolveUsers(userIds);
+
+    const enriched = comments.map((c) => ({
+      ...c,
+      author: users.get(c.authorId) || { id: c.authorId, name: null, avatarUrl: null },
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch comments" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch comments" }, { status: 500 });
   }
 }
 
@@ -53,7 +52,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -65,10 +64,7 @@ export async function POST(
     });
 
     if (!document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
     const body = await request.json();
@@ -90,16 +86,21 @@ export async function POST(
         documentId: id,
         parentId: parent_id || null,
       },
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
     });
 
-    return NextResponse.json(comment, { status: 201 });
+    logEvent({
+      documentId: id,
+      authorId: userId,
+      action: "comment.added",
+      source,
+      metadata: { commentId: comment.id, content, fromPos: from_pos, toPos: to_pos },
+    });
+
+    notifyChange(id, "comments");
+
+    const author = await resolveUser(userId);
+    return NextResponse.json({ ...comment, author }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to create comment" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to create comment" }, { status: 500 });
   }
 }

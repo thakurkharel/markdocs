@@ -3,13 +3,21 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { UserButton } from "@clerk/nextjs";
+import {
+  Plus, FileText, Trash2, MoreHorizontal,
+} from "lucide-react";
+import { UserMenu } from "@/components/user-menu";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Author {
   id: string;
@@ -37,11 +45,11 @@ function formatRelativeTime(dateStr: string): string {
   const diffDay = Math.floor(diffHr / 24);
 
   if (diffSec < 60) return "just now";
-  if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? "s" : ""} ago`;
-  if (diffHr < 24) return `${diffHr} hour${diffHr !== 1 ? "s" : ""} ago`;
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay === 1) return "yesterday";
-  if (diffDay < 7) return `${diffDay} days ago`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function DashboardPage() {
@@ -101,159 +109,163 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-4xl px-6 py-16">
-        {/* Header */}
-        <header className="mb-12 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              Mark<span className="text-primary">Docs</span>
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Collaborative markdown editing
-            </p>
+      {/* Top bar */}
+      <header className="sticky top-0 z-50 border-b border-border/40 bg-background/60 backdrop-blur-xl">
+        <div className="flex h-14 items-center justify-between px-6">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground">
+                <FileText className="h-3.5 w-3.5 text-background" />
+              </div>
+              <span className="text-base font-semibold tracking-tight">MarkDocs</span>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger>
-                <Button size="default">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  New Document
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Document</DialogTitle>
-                  <DialogDescription>
-                    Give your document a name to get started.
-                  </DialogDescription>
-                </DialogHeader>
-                <Input
-                  placeholder="Document title"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreate();
-                  }}
-                  autoFocus
-                />
-                <DialogFooter>
-                  <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreate}>Create</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <UserButton />
-          </div>
-        </header>
+          <UserMenu />
+        </div>
+      </header>
 
-        {/* Loading State */}
+      <div className="px-6 py-8">
+        {/* Actions bar */}
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-lg font-semibold">Documents</h1>
+          <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            New Document
+          </Button>
+        </div>
+
+        {/* Loading */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-24">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" />
-            <p className="mt-4 text-sm text-muted-foreground">Loading documents...</p>
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" />
           </div>
         )}
 
         {/* Empty State */}
         {!loading && documents.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-border bg-muted/50">
-              <svg
-                width="36"
-                height="36"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-muted-foreground"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="12" y1="18" x2="12" y2="12" />
-                <line x1="9" y1="15" x2="15" y2="15" />
-              </svg>
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-muted/50">
+              <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground">No documents yet</h3>
-            <p className="mt-1 mb-6 text-sm text-muted-foreground">
+            <h3 className="text-sm font-semibold text-foreground">No documents yet</h3>
+            <p className="mt-1 mb-4 text-sm text-muted-foreground">
               Create your first document to get started.
             </p>
-            <Button onClick={() => setCreateOpen(true)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+            <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
               New Document
             </Button>
           </div>
         )}
 
-        {/* Document Grid */}
+        {/* Documents Table */}
         {!loading && documents.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {documents.map((doc) => (
-              <Card
-                key={doc.id}
-                className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg hover:border-primary/20"
-                onClick={() => router.push(`/doc/${doc.id}`)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="line-clamp-1 text-base">{doc.title}</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteConfirm(doc.id);
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-4 w-4">
-                      {doc.creator.avatarUrl && (
-                        <AvatarImage src={doc.creator.avatarUrl} alt={doc.creator.name || "Creator"} />
-                      )}
-                      <AvatarFallback className="text-[8px]">
-                        {(doc.creator.name || "?").charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <CardDescription className="text-xs">
-                      Updated {formatRelativeTime(doc.updatedAt)}
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-              </Card>
-            ))}
+          <div className="rounded-lg border border-border/60">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[50%]">Title</TableHead>
+                  <TableHead>Owner</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {documents.map((doc) => (
+                  <TableRow
+                    key={doc.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/doc/${doc.id}`)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-sm truncate">{doc.title}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-5 w-5">
+                          {doc.creator.avatarUrl && (
+                            <AvatarImage src={doc.creator.avatarUrl} alt={doc.creator.name || "Creator"} />
+                          )}
+                          <AvatarFallback className="text-[9px]">
+                            {(doc.creator.name || "?").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm text-muted-foreground truncate">
+                          {doc.creator.name || "Unknown"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {formatRelativeTime(doc.updatedAt)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 data-[popup-open]:opacity-100"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteConfirm(doc.id)}
+                          >
+                            <Trash2 className="mr-2 h-3.5 w-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Document</DialogTitle>
+            <DialogDescription>
+              Give your document a name to get started.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="Document title"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCreate();
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Document</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this document? This action cannot be undone.
+              Are you sure? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>
-              Cancel
-            </Button>
+            <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>
               Delete
             </Button>

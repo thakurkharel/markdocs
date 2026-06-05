@@ -10,10 +10,12 @@ import { defaultKeymap } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { yCollab } from "y-codemirror.next";
+import { ViewPlugin } from "@codemirror/view";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,9 +29,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/components/auth-provider";
+import { UserMenu } from "@/components/user-menu";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -74,6 +78,8 @@ interface HistoryEntry {
   author: Author;
   action: string;
   diff: string | null;
+  source: string;
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -81,6 +87,7 @@ interface AwarenessUser {
   name: string;
   color: string;
   colorLight: string;
+  avatarUrl?: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -120,20 +127,53 @@ function getDisplayName(author: Author): string {
   return author.name || "Anonymous";
 }
 
+function formatHistoryAction(entry: HistoryEntry): string {
+  const meta = entry.metadata as Record<string, unknown> | null;
+  switch (entry.action) {
+    case "document.created":
+      return `Created document "${meta?.title || ""}"`;
+    case "document.title_changed":
+      return `Renamed "${meta?.oldTitle}" → "${meta?.newTitle}"`;
+    case "document.archived":
+      return "Archived this document";
+    case "comment.added":
+      return `Commented: "${truncate(meta?.content as string, 60)}"`;
+    case "comment.resolved":
+      return "Resolved a comment";
+    case "comment.deleted":
+      return "Deleted a comment";
+    case "suggestion.added":
+      return `Suggested: "${truncate(meta?.suggestedText as string, 60)}"`;
+    case "suggestion.accepted":
+      return "Accepted a suggestion";
+    case "suggestion.rejected":
+      return "Rejected a suggestion";
+    case "document.content_edited":
+      return "Edited document content";
+    default:
+      return entry.action;
+  }
+}
+
+function truncate(str: string | undefined | null, len: number): string {
+  if (!str) return "";
+  return str.length > len ? str.slice(0, len) + "…" : str;
+}
+
 // ── Component ────────────────────────────────────────────────
 
 export default function EditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
 
-  // User state (from Clerk)
-  const { user } = useUser();
+  // User state
+  const { user } = useAuth();
+  const { resolvedTheme } = useTheme();
   const [userName, setUserName] = useState("Anonymous");
   const [userColor, setUserColor] = useState("#2383e2");
 
   // Editor state
-  const [mode, setMode] = useState<"edit" | "suggest">("edit");
-  const [showPreview, setShowPreview] = useState(false);
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [sidebarTab, setSidebarTab] = useState("comments");
   const [docTitle, setDocTitle] = useState("Untitled");
   const [editorContent, setEditorContent] = useState("");
@@ -141,6 +181,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   // Collaboration state
   const [activeUsers, setActiveUsers] = useState<Map<number, AwarenessUser>>(new Map());
   const [ready, setReady] = useState(false);
+  const [wsProvider, setWsProvider] = useState<WebsocketProvider | null>(null);
 
   // Sidebar data
   const [comments, setComments] = useState<Comment[]>([]);
@@ -152,10 +193,22 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   // Comment form
   const [newComment, setNewComment] = useState("");
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number; text: string } | null>(null);
+  const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number } | null>(null);
+  const [showSuggestionInput, setShowSuggestionInput] = useState(false);
+  const [suggestionText, setSuggestionText] = useState("");
 
   // Mobile sidebar
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
+
+  // Share dialog
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareHandle, setShareHandle] = useState("");
+  const [shareError, setShareError] = useState("");
+  const [shareLoading, setShareLoading] = useState(false);
+  const [collaborators, setCollaborators] = useState<{ id: string; role: string; user: { id: string; handle: string; name: string | null; avatarUrl: string | null } }[]>([]);
+  const [docOwner, setDocOwner] = useState<{ id: string; handle: string; name: string | null; avatarUrl: string | null } | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
 
   // Refs
   const editorRef = useRef<HTMLDivElement>(null);
@@ -167,8 +220,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   // ── User Setup ─────────────────────────────────────────────
 
   useEffect(() => {
-    const clerkName = user?.fullName || user?.firstName || null;
-    let name = clerkName || localStorage.getItem("markdocs-user") || "Anonymous";
+    let name = user?.name || localStorage.getItem("markdocs-user") || "Anonymous";
     let color = localStorage.getItem("markdocs-color");
 
     setUserName(name);
@@ -210,14 +262,16 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
     ydocRef.current = ydoc;
     providerRef.current = provider;
     ytextRef.current = ytext;
+    setWsProvider(provider);
 
-    const currentName = user?.fullName || user?.firstName || localStorage.getItem("markdocs-user") || "Anonymous";
+    const currentName = user?.name || localStorage.getItem("markdocs-user") || "Anonymous";
     const currentColor = localStorage.getItem("markdocs-color") || getRandomColor();
 
     provider.awareness.setLocalStateField("user", {
       name: currentName,
       color: currentColor,
       colorLight: currentColor + "40",
+      avatarUrl: user?.avatarUrl || null,
     });
 
     const onAwarenessChange = () => {
@@ -242,11 +296,60 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       if (update.docChanged) {
         setEditorContent(update.state.doc.toString());
       }
-      const sel = update.state.selection.main;
-      if (sel.from !== sel.to) {
-        const text = update.state.doc.sliceString(sel.from, sel.to);
-        setSelectionRange({ from: sel.from, to: sel.to, text });
+      if (update.selectionSet || update.docChanged) {
+        const sel = update.state.selection.main;
+        if (sel.from !== sel.to) {
+          const text = update.state.doc.sliceString(sel.from, sel.to);
+          // Get screen coordinates for the floating toolbar
+          const coords = update.view.coordsAtPos(sel.to);
+          setSelectionRange({ from: sel.from, to: sel.to, text });
+          if (coords) {
+            setFloatingToolbarPos({ x: coords.left, y: coords.bottom + 8 });
+          }
+        } else {
+          setSelectionRange(null);
+          setFloatingToolbarPos(null);
+          setShowSuggestionInput(false);
+          setSuggestionText("");
+        }
       }
+    });
+
+    // Plugin to inject avatar initials into remote cursor labels
+    const cursorAvatarPlugin = ViewPlugin.define((view) => {
+      const patchCursors = () => {
+        const carets = view.dom.querySelectorAll(".cm-ySelectionCaret");
+        carets.forEach((caret) => {
+          const info = caret.querySelector(".cm-ySelectionInfo") as HTMLElement | null;
+          if (!info || info.querySelector(".cm-yAvatarBubble")) return;
+          const name = info.textContent || "?";
+          const color = (caret as HTMLElement).style.backgroundColor || "#888";
+          const bubble = document.createElement("span");
+          bubble.className = "cm-yAvatarBubble";
+          bubble.textContent = name.charAt(0).toUpperCase();
+          bubble.style.cssText = `
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: ${color}; color: white; font-size: 8px; font-weight: 700;
+            margin-right: 3px; flex-shrink: 0; font-family: system-ui, sans-serif;
+          `;
+          info.insertBefore(bubble, info.firstChild);
+          // Style the info label to be a pill with avatar
+          info.style.display = "flex";
+          info.style.alignItems = "center";
+          info.style.borderRadius = "8px";
+          info.style.padding = "1px 6px 1px 2px";
+          info.style.fontSize = "10px";
+          info.style.fontFamily = "system-ui, sans-serif";
+        });
+      };
+      const observer = new MutationObserver(patchCursors);
+      observer.observe(view.dom, { childList: true, subtree: true });
+      patchCursors();
+      return {
+        update: patchCursors,
+        destroy: () => observer.disconnect(),
+      };
     });
 
     const view = new EditorView({
@@ -257,10 +360,11 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           basicSetup,
           keymap.of(defaultKeymap),
           markdown({ codeLanguages: languages }),
-          oneDark,
+          ...(resolvedTheme === "dark" ? [oneDark] : []),
           editorTheme,
           updateListener,
           yCollab(ytext, provider.awareness),
+          cursorAvatarPlugin,
         ],
       }),
     });
@@ -275,12 +379,13 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
     });
 
     return () => {
+      setWsProvider(null);
       view.destroy();
       provider.awareness.off("change", onAwarenessChange);
       provider.destroy();
       ydoc.destroy();
     };
-  }, [id]);
+  }, [id, resolvedTheme]);
 
   // ── Fetch Sidebar Data ────────────────────────────────────
 
@@ -317,6 +422,11 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
     const interval = setInterval(fetchHistory, 30000);
     return () => clearInterval(interval);
   }, [sidebarTab, fetchHistory]);
+
+  // ── WS Realtime Notifications ──────────────────────────────
+  useRealtimeTable(wsProvider, "comments", fetchComments);
+  useRealtimeTable(wsProvider, "suggestions", fetchSuggestions);
+  useRealtimeTable(wsProvider, "edit_history", fetchHistory);
 
   // ── Title Update ──────────────────────────────────────────
 
@@ -407,9 +517,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   // ── Create Suggestion ─────────────────────────────────────
 
   const handleCreateSuggestion = async () => {
-    if (!selectionRange || !editorViewRef.current) return;
-    const suggestedText = prompt("Enter your suggested replacement text:");
-    if (suggestedText === null) return;
+    if (!selectionRange || !editorViewRef.current || !suggestionText.trim()) return;
 
     try {
       await fetch(`/api/documents/${id}/suggestions`, {
@@ -417,7 +525,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           original_text: selectionRange.text,
-          suggested_text: suggestedText,
+          suggested_text: suggestionText.trim(),
           from_pos: selectionRange.from,
           to_pos: selectionRange.to,
         }),
@@ -425,6 +533,63 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       fetchSuggestions();
       setDesktopSidebarOpen(true);
       setSidebarTab("suggestions");
+      setSuggestionText("");
+      setShowSuggestionInput(false);
+      setSelectionRange(null);
+      setFloatingToolbarPos(null);
+    } catch { /* ignore */ }
+  };
+
+  // ── Share / Collaborator Actions ─────────────────────────
+
+  const fetchCollaborators = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/documents/${id}/collaborators`);
+      if (res.ok) {
+        const data = await res.json();
+        setDocOwner(data.owner);
+        setCollaborators(data.collaborators);
+        setIsOwner(data.owner.id === user?.id);
+      }
+    } catch { /* ignore */ }
+  }, [id, user?.id]);
+
+  useEffect(() => {
+    if (shareOpen) fetchCollaborators();
+  }, [shareOpen, fetchCollaborators]);
+
+  const handleAddCollaborator = async () => {
+    if (!shareHandle.trim()) return;
+    setShareError("");
+    setShareLoading(true);
+    try {
+      const res = await fetch(`/api/documents/${id}/collaborators`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: shareHandle.trim() }),
+      });
+      if (res.ok) {
+        setShareHandle("");
+        fetchCollaborators();
+      } else {
+        const err = await res.json();
+        setShareError(err.error || "Failed to add");
+      }
+    } catch {
+      setShareError("Failed to add collaborator");
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (collaboratorId: string) => {
+    try {
+      await fetch(`/api/documents/${id}/collaborators`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collaboratorId }),
+      });
+      fetchCollaborators();
     } catch { /* ignore */ }
   };
 
@@ -549,24 +714,24 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                   <div className="flex gap-1 justify-end">
                     {!comment.resolved && (
                       <Tooltip>
-                        <TooltipTrigger>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResolveComment(comment.id)}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          </Button>
+                        <TooltipTrigger
+                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResolveComment(comment.id)} />}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
                         </TooltipTrigger>
                         <TooltipContent>Resolve</TooltipContent>
                       </Tooltip>
                     )}
                     <Tooltip>
-                      <TooltipTrigger>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeleteComment(comment.id)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </Button>
+                      <TooltipTrigger
+                        render={<Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeleteComment(comment.id)} />}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
                       </TooltipTrigger>
                       <TooltipContent>Delete</TooltipContent>
                     </Tooltip>
@@ -704,11 +869,16 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                         </AvatarFallback>
                       </Avatar>
                       <span className="text-xs font-semibold">{getDisplayName(entry.author)}</span>
+                      {entry.source && entry.source !== "web" && (
+                        <Badge variant="outline" className="h-4 px-1 text-[9px] font-mono">
+                          {entry.source}
+                        </Badge>
+                      )}
                       <span className="text-[10px] text-muted-foreground ml-auto">
                         {formatRelativeTime(entry.createdAt)}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground">{entry.action}</p>
+                    <p className="text-xs text-muted-foreground">{formatHistoryAction(entry)}</p>
                     {entry.diff && (
                       <div className="mt-1 rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground truncate">
                         {entry.diff}
@@ -733,13 +903,13 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         {/* Left: Back + Title */}
         <div className="flex items-center gap-2">
           <Tooltip>
-            <TooltipTrigger>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push("/dashboard")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="19" y1="12" x2="5" y2="12" />
-                  <polyline points="12 19 5 12 12 5" />
-                </svg>
-              </Button>
+            <TooltipTrigger
+              render={<Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push("/dashboard")} />}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
             </TooltipTrigger>
             <TooltipContent>Back to dashboard</TooltipContent>
           </Tooltip>
@@ -752,45 +922,34 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           />
         </div>
 
-        {/* Center: Mode Toggle + Preview */}
-        <div className="ml-auto flex items-center gap-1 md:ml-0 md:flex-1 md:justify-center">
-          <div className="flex items-center rounded-lg bg-muted p-0.5">
-            <Button
-              variant={mode === "edit" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 rounded-md px-3 text-xs"
-              onClick={() => setMode("edit")}
-            >
-              Edit
-            </Button>
-            <Button
-              variant={mode === "suggest" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 rounded-md px-3 text-xs"
-              onClick={() => setMode("suggest")}
-            >
-              Suggest
-            </Button>
+        {/* Center: Mode Toggle */}
+        <div className="ml-auto flex items-center gap-2 md:ml-0 md:flex-1 md:justify-center">
+          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+            {(["edit", "preview"] as const).map((m) => (
+              <Button
+                key={m}
+                variant={mode === m ? "secondary" : "ghost"}
+                size="sm"
+                className={`h-7 rounded-md px-3 text-xs font-medium capitalize ${
+                  mode === m ? "shadow-sm" : "text-muted-foreground"
+                }`}
+                onClick={() => setMode(m)}
+              >
+                {m === "edit" && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5">
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                  </svg>
+                )}
+                {m === "preview" && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+                {m}
+              </Button>
+            ))}
           </div>
-
-          {mode === "suggest" && selectionRange && (
-            <Button size="sm" className="h-7 text-xs" onClick={handleCreateSuggestion}>
-              Make Suggestion
-            </Button>
-          )}
-
-          <Button
-            variant={showPreview ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 px-3 text-xs"
-            onClick={() => setShowPreview(!showPreview)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            Preview
-          </Button>
         </div>
 
         {/* Right: Users + Sidebar Toggle */}
@@ -800,7 +959,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
             <div className="flex -space-x-1.5 mr-1">
               {Array.from(activeUsers.entries()).map(([clientId, u]) => (
                 <Tooltip key={clientId}>
-                  <TooltipTrigger>
+                  <TooltipTrigger render={<span />}>
                     <Avatar className="h-6 w-6 border-2 border-card">
                       <AvatarFallback
                         className="text-[10px] font-bold text-white"
@@ -816,51 +975,54 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
             </div>
           )}
 
+          {/* Share button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 px-2.5 text-xs"
+            onClick={() => setShareOpen(true)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg>
+            Share
+          </Button>
+
           {/* Current user */}
-          <Tooltip>
-            <TooltipTrigger>
-              <div className="flex items-center gap-1.5 px-2 h-7 text-xs">
-                <Avatar className="h-5 w-5">
-                  <AvatarFallback
-                    className="text-[10px] font-bold text-white"
-                    style={{ background: userColor }}
-                  >
-                    {getUserInitial(userName)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="hidden md:inline text-sm text-muted-foreground">{userName}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>{userName}</TooltipContent>
-          </Tooltip>
+          <UserMenu />
 
           {/* Desktop sidebar toggle */}
           <Tooltip>
-            <TooltipTrigger>
-              <Button
-                variant={desktopSidebarOpen ? "secondary" : "ghost"}
-                size="icon"
-                className="hidden h-8 w-8 md:inline-flex"
-                onClick={() => setDesktopSidebarOpen(!desktopSidebarOpen)}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <line x1="15" y1="3" x2="15" y2="21" />
-                </svg>
-              </Button>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={desktopSidebarOpen ? "secondary" : "ghost"}
+                  size="icon"
+                  className="hidden h-8 w-8 md:inline-flex"
+                  onClick={() => setDesktopSidebarOpen(!desktopSidebarOpen)}
+                />
+              }
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
             </TooltipTrigger>
             <TooltipContent>Toggle sidebar</TooltipContent>
           </Tooltip>
 
           {/* Mobile sidebar (Sheet) */}
           <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-            <SheetTrigger>
-              <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <line x1="15" y1="3" x2="15" y2="21" />
-                </svg>
-              </Button>
+            <SheetTrigger
+              render={<Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" />}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
             </SheetTrigger>
             <SheetContent className="w-full sm:w-[400px] p-0">
               <SheetHeader className="sr-only">
@@ -877,15 +1039,24 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       <div className="flex flex-1 overflow-hidden">
         {/* Editor or Preview */}
         <div className="flex-1 overflow-auto">
-          {showPreview ? (
+          {/* Preview layer */}
+          <div className={mode === "preview" ? "block" : "hidden"}>
             <div className="mx-auto max-w-3xl px-8 py-8">
-              <div className="prose text-foreground">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {editorContent}
-                </ReactMarkdown>
-              </div>
+              {editorContent ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none text-foreground">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {editorContent}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p className="py-16 text-center text-sm text-muted-foreground">
+                  Nothing to preview yet. Switch to Edit mode and start writing.
+                </p>
+              )}
             </div>
-          ) : (
+          </div>
+          {/* Editor layer — always mounted to preserve CodeMirror instance */}
+          <div className={mode !== "preview" ? "h-full relative" : "hidden"}>
             <div className="h-full px-4 py-2 md:px-12">
               {!ready && (
                 <div className="flex flex-col items-center justify-center py-16">
@@ -899,7 +1070,85 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 style={{ display: ready ? "block" : "none" }}
               />
             </div>
-          )}
+
+            {/* Floating selection toolbar */}
+            {selectionRange && floatingToolbarPos && mode === "edit" && (
+              <div
+                className="fixed z-50 flex items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
+                style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}
+              >
+                {!showSuggestionInput ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2.5 text-xs"
+                      onClick={() => {
+                        setDesktopSidebarOpen(true);
+                        setSidebarTab("comments");
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                      Comment
+                    </Button>
+                    <div className="h-4 w-px bg-border" />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2.5 text-xs"
+                      onClick={() => setShowSuggestionInput(true)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                        <path d="M15 5l4 4" />
+                      </svg>
+                      Suggest
+                    </Button>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex flex-col gap-1">
+                      <span className="px-1 text-[10px] text-muted-foreground truncate max-w-[200px]">
+                        Replace: &ldquo;{selectionRange.text.length > 30 ? selectionRange.text.slice(0, 30) + "..." : selectionRange.text}&rdquo;
+                      </span>
+                      <Input
+                        placeholder="Suggested replacement..."
+                        value={suggestionText}
+                        onChange={(e) => setSuggestionText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateSuggestion();
+                          if (e.key === "Escape") { setShowSuggestionInput(false); setSuggestionText(""); }
+                        }}
+                        className="h-7 w-56 text-xs"
+                        autoFocus
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={handleCreateSuggestion}
+                      disabled={!suggestionText.trim()}
+                    >
+                      Submit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-xs text-muted-foreground"
+                      onClick={() => { setShowSuggestionInput(false); setSuggestionText(""); }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Desktop Sidebar */}
@@ -909,6 +1158,93 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           </div>
         )}
       </div>
+
+      {/* Share Dialog */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share document</DialogTitle>
+            <DialogDescription>Add people by their handle to collaborate on this document.</DialogDescription>
+          </DialogHeader>
+
+          {isOwner && (
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+                <Input
+                  placeholder="handle"
+                  value={shareHandle}
+                  onChange={(e) => { setShareHandle(e.target.value); setShareError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddCollaborator(); }}
+                  className="pl-7"
+                />
+              </div>
+              <Button onClick={handleAddCollaborator} disabled={shareLoading || !shareHandle.trim()}>
+                Add
+              </Button>
+            </div>
+          )}
+
+          {shareError && (
+            <p className="text-sm text-destructive">{shareError}</p>
+          )}
+
+          <div className="space-y-2 mt-2">
+            {/* Owner */}
+            {docOwner && (
+              <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+                <Avatar className="h-7 w-7">
+                  {docOwner.avatarUrl && <AvatarImage src={docOwner.avatarUrl} />}
+                  <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                    {(docOwner.name || docOwner.handle).charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{docOwner.name || docOwner.handle}</p>
+                  <p className="text-xs text-muted-foreground">@{docOwner.handle}</p>
+                </div>
+                <Badge variant="secondary" className="text-[10px]">Owner</Badge>
+              </div>
+            )}
+
+            {/* Collaborators */}
+            {collaborators.map((c) => (
+              <div key={c.id} className="flex items-center gap-3 rounded-lg px-2 py-2">
+                <Avatar className="h-7 w-7">
+                  {c.user.avatarUrl && <AvatarImage src={c.user.avatarUrl} />}
+                  <AvatarFallback className="text-xs bg-muted text-muted-foreground">
+                    {(c.user.name || c.user.handle).charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{c.user.name || c.user.handle}</p>
+                  <p className="text-xs text-muted-foreground">@{c.user.handle}</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] capitalize">{c.role}</Badge>
+                {isOwner && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    onClick={() => handleRemoveCollaborator(c.id)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </Button>
+                )}
+              </div>
+            ))}
+
+            {collaborators.length === 0 && (
+              <p className="py-4 text-center text-xs text-muted-foreground">
+                No collaborators yet. Add someone by their handle.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

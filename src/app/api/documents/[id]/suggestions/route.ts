@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { resolveUsers, resolveUser } from "@/lib/users";
+import { logEvent } from "@/lib/provenance";
+import { notifyChange } from "@/lib/realtime";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -17,25 +20,26 @@ export async function GET(
     const status = searchParams.get("status");
 
     const where: any = { documentId: id };
-
     if (status === "pending" || status === "accepted" || status === "rejected") {
       where.status = status;
     }
 
     const suggestions = await prisma.suggestion.findMany({
       where,
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(suggestions);
+    const userIds = [...new Set(suggestions.map((s) => s.authorId))];
+    const users = await resolveUsers(userIds);
+
+    const enriched = suggestions.map((s) => ({
+      ...s,
+      author: users.get(s.authorId) || { id: s.authorId, name: null, avatarUrl: null },
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch suggestions" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch suggestions" }, { status: 500 });
   }
 }
 
@@ -44,7 +48,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -56,26 +60,15 @@ export async function POST(
     });
 
     if (!document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
     const body = await request.json();
     const { original_text, suggested_text, from_pos, to_pos } = body;
 
-    if (
-      !original_text ||
-      !suggested_text ||
-      from_pos === undefined ||
-      to_pos === undefined
-    ) {
+    if (!original_text || !suggested_text || from_pos === undefined || to_pos === undefined) {
       return NextResponse.json(
-        {
-          error:
-            "original_text, suggested_text, from_pos, and to_pos are required",
-        },
+        { error: "original_text, suggested_text, from_pos, and to_pos are required" },
         { status: 400 }
       );
     }
@@ -89,16 +82,21 @@ export async function POST(
         authorId: userId,
         documentId: id,
       },
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
     });
 
-    return NextResponse.json(suggestion, { status: 201 });
+    logEvent({
+      documentId: id,
+      authorId: userId,
+      action: "suggestion.added",
+      source,
+      metadata: { suggestionId: suggestion.id, originalText: original_text, suggestedText: suggested_text },
+    });
+
+    notifyChange(id, "suggestions");
+
+    const author = await resolveUser(userId);
+    return NextResponse.json({ ...suggestion, author }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to create suggestion" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to create suggestion" }, { status: 500 });
   }
 }

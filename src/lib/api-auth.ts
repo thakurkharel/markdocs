@@ -1,28 +1,62 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUserId } from "@/lib/auth";
+import crypto from "crypto";
+
+export type AuthSource = "web" | "api";
+
+export interface AuthResult {
+  userId: string | null;
+  source: AuthSource;
+}
+
+function hashKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
 
 /**
- * Authenticate a request via Clerk session OR API key.
- * Returns the user ID if authenticated, null otherwise.
+ * Authenticate a request via session cookie OR API key.
+ * Returns the user ID and source channel.
  *
- * CLI/MCP clients use: Authorization: Bearer <MARKDOCS_API_KEY>
- * Browser clients use: Clerk session cookies
+ * CLI/MCP clients use: Authorization: Bearer <API_KEY>  -> source: "api"
+ * Browser clients use: Session cookie                    -> source: "web"
  */
-export async function getAuthUserId(request?: NextRequest): Promise<string | null> {
-  // Check for API key in Authorization header
+export async function getAuth(request?: NextRequest): Promise<AuthResult> {
   if (request) {
     const authHeader = request.headers.get("authorization");
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      const apiKey = process.env.MARKDOCS_API_KEY;
-      if (apiKey && token === apiKey) {
-        // API key auth — use a configured service user ID
-        return process.env.MARKDOCS_SERVICE_USER_ID || "service-user";
+      const keyHash = hashKey(token);
+
+      const apiKey = await prisma.apiKey.findFirst({
+        where: {
+          keyHash,
+          revokedAt: null,
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } },
+          ],
+        },
+      });
+
+      if (apiKey) {
+        prisma.apiKey.update({
+          where: { id: apiKey.id },
+          data: { lastUsedAt: new Date() },
+        }).catch(() => {});
+
+        return { userId: apiKey.userId, source: "api" };
       }
+
+      return { userId: null, source: "api" };
     }
   }
 
-  // Fall back to Clerk session auth
-  const { userId } = await auth();
+  const userId = await getCurrentUserId();
+  return { userId, source: "web" };
+}
+
+export async function getAuthUserId(request?: NextRequest): Promise<string | null> {
+  const { userId } = await getAuth(request);
   return userId;
 }

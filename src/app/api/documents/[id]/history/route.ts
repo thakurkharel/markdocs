@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUserId } from "@/lib/api-auth";
+import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
+import { resolveUsers, resolveUser } from "@/lib/users";
+import { notifyChange } from "@/lib/realtime";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -16,18 +18,20 @@ export async function GET(
 
     const history = await prisma.editHistory.findMany({
       where: { documentId: id },
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(history);
+    const userIds = [...new Set(history.map((h) => h.authorId))];
+    const users = await resolveUsers(userIds);
+
+    const enriched = history.map((h) => ({
+      ...h,
+      author: users.get(h.authorId) || { id: h.authorId, name: null, avatarUrl: null },
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch edit history" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch edit history" }, { status: 500 });
   }
 }
 
@@ -36,7 +40,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthUserId(request);
+    const { userId, source } = await getAuth(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -48,39 +52,32 @@ export async function POST(
     });
 
     if (!document) {
-      return NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
     const body = await request.json();
-    const { action, diff } = body;
+    const { action, diff, metadata } = body;
 
     if (!action) {
-      return NextResponse.json(
-        { error: "action is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "action is required" }, { status: 400 });
     }
 
     const entry = await prisma.editHistory.create({
       data: {
         action,
         diff,
+        source,
+        metadata: metadata ?? undefined,
         authorId: userId,
         documentId: id,
       },
-      include: {
-        author: { select: { id: true, name: true, avatarUrl: true } },
-      },
     });
 
-    return NextResponse.json(entry, { status: 201 });
+    notifyChange(id, "edit_history");
+
+    const author = await resolveUser(userId);
+    return NextResponse.json({ ...entry, author }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to record edit history" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to record edit history" }, { status: 500 });
   }
 }
