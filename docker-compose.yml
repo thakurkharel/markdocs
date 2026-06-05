@@ -30,5 +30,18 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-random-secret}
       PORT: "3001"
 
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: markdocs-mcp
+    environment:
+      MARKDOCS_URL: http://app:3001
+      MARKDOCS_API_KEY: ${MARKDOCS_API_KEY:-}
+    depends_on:
+      - app
+    profiles:
+      - mcp
+
 volumes:
   pgdata:

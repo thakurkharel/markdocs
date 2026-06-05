@@ -18,55 +18,122 @@ export default function MCPDocsPage() {
         interact with your documents.
       </p>
 
-      <h2>Quick Setup</h2>
+      <h2>Setup Options</h2>
+      <p>Choose the method that fits your workflow:</p>
 
-      <h3>1. Install the CLI</h3>
-      <pre><code>{`curl -fsSL https://markdocs.sh/install.sh | bash`}</code></pre>
-
-      <h3>2. Get your API key</h3>
+      <h3>Option A: Docker MCP Gateway (recommended)</h3>
       <p>
-        Go to <Link href="/settings">Settings</Link> in your MarkDocs dashboard and create an API key.
-        You{"'"}ll need this for the MCP server configuration.
+        The MCP server ships as a Docker image. Build it once, then point any MCP client at it.
       </p>
+      <pre><code>{`# Build the MCP image from the repo root
+docker build -f Dockerfile.mcp -t markdocs-mcp .`}</code></pre>
 
-      <h3>3. Configure Claude Desktop</h3>
+      <h4>Docker MCP Toolkit</h4>
       <p>
-        Add this to your <code>claude_desktop_config.json</code>:
+        If you use <strong>Docker Desktop 4.62+</strong> with the MCP Toolkit enabled,
+        add MarkDocs to a profile:
+      </p>
+      <pre><code>{`# Add the markdocs-mcp image to a Docker MCP Toolkit profile
+docker mcp gateway run --profile my_profile`}</code></pre>
+      <p>
+        Or configure any client that supports Docker MCP Toolkit:
+      </p>
+      <pre><code>{`{
+  "servers": {
+    "MCP_DOCKER": {
+      "command": "docker",
+      "args": ["mcp", "gateway", "run", "--profile", "my_profile"],
+      "type": "stdio"
+    }
+  }
+}`}</code></pre>
+
+      <h4>Direct Docker run</h4>
+      <p>
+        For clients that accept a custom command, point them at the Docker image directly:
       </p>
       <pre><code>{`{
   "mcpServers": {
     "markdocs": {
-      "command": "markdocs-mcp",
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-e", "MARKDOCS_URL",
+        "-e", "MARKDOCS_API_KEY",
+        "markdocs-mcp"
+      ],
       "env": {
-        "MARKDOCS_API_KEY": "mdk_your_key_here",
-        "MARKDOCS_URL": "https://markdocs.sh"
+        "MARKDOCS_API_KEY": "your-api-key",
+        "MARKDOCS_URL": "http://localhost:3001"
       }
     }
   }
 }`}</code></pre>
 
-      <h3>4. Configure Claude Code</h3>
+      <h3>Option B: npx (no Docker)</h3>
+      <p>
+        Run the MCP server directly from the CLI source:
+      </p>
+      <pre><code>{`# From the repo root
+cd cli && npm install && npm run mcp
+
+# Or with npx
+MARKDOCS_API_KEY=your-key MARKDOCS_URL=http://localhost:3001 npx tsx cli/src/mcp.ts`}</code></pre>
+
+      <h3>Option C: Bundled binary</h3>
+      <pre><code>{`# Build a single-file bundle
+cd cli && npm run bundle
+
+# Run it
+MARKDOCS_API_KEY=your-key ./bundle/markdocs-mcp.cjs`}</code></pre>
+
+      <h2>Client Configuration</h2>
+
+      <h3>Claude Code</h3>
       <p>
         Add to your project{"'"}s <code>.mcp.json</code>:
       </p>
       <pre><code>{`{
   "mcpServers": {
     "markdocs": {
-      "command": "markdocs-mcp",
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-e", "MARKDOCS_URL", "-e", "MARKDOCS_API_KEY", "markdocs-mcp"],
       "env": {
-        "MARKDOCS_API_KEY": "mdk_your_key_here",
-        "MARKDOCS_URL": "https://markdocs.sh"
+        "MARKDOCS_API_KEY": "your-api-key",
+        "MARKDOCS_URL": "http://host.docker.internal:3001"
       }
     }
   }
 }`}</code></pre>
 
-      <h3>5. Other MCP clients</h3>
+      <h3>Claude Desktop</h3>
       <p>
-        Any MCP-compatible client can connect using stdio transport:
+        Add to your <code>claude_desktop_config.json</code>:
       </p>
-      <pre><code>{`# Run the MCP server directly
-MARKDOCS_API_KEY=mdk_your_key MARKDOCS_URL=https://markdocs.sh markdocs mcp`}</code></pre>
+      <pre><code>{`{
+  "mcpServers": {
+    "markdocs": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-e", "MARKDOCS_URL", "-e", "MARKDOCS_API_KEY", "markdocs-mcp"],
+      "env": {
+        "MARKDOCS_API_KEY": "your-api-key",
+        "MARKDOCS_URL": "http://host.docker.internal:3001"
+      }
+    }
+  }
+}`}</code></pre>
+
+      <h3>Cursor / VS Code / Other</h3>
+      <p>
+        Any MCP-compatible client that supports stdio transport can connect using the
+        same Docker command pattern above.
+      </p>
+
+      <h2>API Key</h2>
+      <p>
+        Generate an API key from <Link href="/settings">Settings</Link> in the
+        MarkDocs dashboard. Set it as the <code>MARKDOCS_API_KEY</code> environment variable.
+      </p>
 
       <h2>Available Tools</h2>
 
@@ -160,17 +227,17 @@ MARKDOCS_API_KEY=mdk_your_key MARKDOCS_URL=https://markdocs.sh markdocs mcp`}</c
       <h2>Architecture</h2>
       <pre><code>{`┌─────────────────┐     stdio      ┌─────────────────┐
 │  AI Agent       │ ◄────────────► │  MCP Server     │
-│  (Claude, etc.) │                │  (markdocs-mcp) │
+│  (Claude, etc.) │                │  (Docker image) │
 └─────────────────┘                └────────┬────────┘
-                                            │ HTTPS + API Key
+                                            │ HTTP + API Key
                                    ┌────────▼────────┐
-                                   │  MarkDocs API   │
-                                   │  markdocs.sh    │
+                                   │  MarkDocs App   │
+                                   │  (Docker)       │
                                    └────────┬────────┘
                                             │ Prisma
                                    ┌────────▼────────┐
                                    │  PostgreSQL     │
-                                   │                 │
+                                   │  (Docker)       │
                                    └─────────────────┘`}</code></pre>
     </article>
   );

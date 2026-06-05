@@ -33,7 +33,9 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/auth-provider";
 import { UserMenu } from "@/components/user-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useRealtimeTable } from "@/hooks/useRealtimeTable";
+import { Search, Check } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -203,11 +205,11 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   // Share dialog
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareHandle, setShareHandle] = useState("");
+  const [shareSearch, setShareSearch] = useState("");
   const [shareError, setShareError] = useState("");
-  const [shareLoading, setShareLoading] = useState(false);
-  const [collaborators, setCollaborators] = useState<{ id: string; role: string; user: { id: string; handle: string; name: string | null; avatarUrl: string | null } }[]>([]);
-  const [docOwner, setDocOwner] = useState<{ id: string; handle: string; name: string | null; avatarUrl: string | null } | null>(null);
+  const [shareSaving, setShareSaving] = useState(false);
+  const [allUsers, setAllUsers] = useState<{ id: string; handle: string; name: string | null; avatarUrl: string | null }[]>([]);
+  const [sharedUserIds, setSharedUserIds] = useState<Set<string>>(new Set());
   const [isOwner, setIsOwner] = useState(false);
 
   // Refs
@@ -542,55 +544,72 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   // ── Share / Collaborator Actions ─────────────────────────
 
+  const fetchAllUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users");
+      if (res.ok) setAllUsers(await res.json());
+    } catch { /* ignore */ }
+  }, []);
+
   const fetchCollaborators = useCallback(async () => {
     try {
       const res = await fetch(`/api/documents/${id}/collaborators`);
       if (res.ok) {
         const data = await res.json();
-        setDocOwner(data.owner);
-        setCollaborators(data.collaborators);
-        setIsOwner(data.owner.id === user?.id);
+        const ids = new Set<string>((data.collaborators || []).map((c: any) => c.user.id));
+        setSharedUserIds(ids);
+        setIsOwner(data.owner?.id === user?.id);
       }
     } catch { /* ignore */ }
   }, [id, user?.id]);
 
   useEffect(() => {
-    if (shareOpen) fetchCollaborators();
-  }, [shareOpen, fetchCollaborators]);
+    if (shareOpen) {
+      fetchAllUsers();
+      fetchCollaborators();
+      setShareSearch("");
+      setShareError("");
+    }
+  }, [shareOpen, fetchAllUsers, fetchCollaborators]);
 
-  const handleAddCollaborator = async () => {
-    if (!shareHandle.trim()) return;
+  const toggleShareUser = async (targetUser: { id: string; handle: string }) => {
     setShareError("");
-    setShareLoading(true);
+    setShareSaving(true);
+    const isShared = sharedUserIds.has(targetUser.id);
+
     try {
-      const res = await fetch(`/api/documents/${id}/collaborators`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: shareHandle.trim() }),
-      });
-      if (res.ok) {
-        setShareHandle("");
-        fetchCollaborators();
+      if (isShared) {
+        const res = await fetch(`/api/documents/${id}/collaborators`);
+        if (res.ok) {
+          const data = await res.json();
+          const collab = (data.collaborators || []).find((c: any) => c.user.id === targetUser.id);
+          if (collab) {
+            await fetch(`/api/documents/${id}/collaborators`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ collaboratorId: collab.id }),
+            });
+          }
+        }
+        setSharedUserIds((prev) => { const next = new Set(prev); next.delete(targetUser.id); return next; });
       } else {
-        const err = await res.json();
-        setShareError(err.error || "Failed to add");
+        const res = await fetch(`/api/documents/${id}/collaborators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handle: targetUser.handle }),
+        });
+        if (res.ok) {
+          setSharedUserIds((prev) => new Set(prev).add(targetUser.id));
+        } else {
+          const err = await res.json();
+          setShareError(err.error || "Failed to share");
+        }
       }
     } catch {
-      setShareError("Failed to add collaborator");
+      setShareError("Failed to update sharing");
     } finally {
-      setShareLoading(false);
+      setShareSaving(false);
     }
-  };
-
-  const handleRemoveCollaborator = async (collaboratorId: string) => {
-    try {
-      await fetch(`/api/documents/${id}/collaborators`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collaboratorId }),
-      });
-      fetchCollaborators();
-    } catch { /* ignore */ }
   };
 
   // ── Filtered Data ─────────────────────────────────────────
@@ -1161,85 +1180,73 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
       {/* Share Dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Share document</DialogTitle>
-            <DialogDescription>Add people by their handle to collaborate on this document.</DialogDescription>
+            <DialogTitle>Share Document</DialogTitle>
+            <DialogDescription>Select teammates to share with.</DialogDescription>
           </DialogHeader>
-
-          {isOwner && (
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
-                <Input
-                  placeholder="handle"
-                  value={shareHandle}
-                  onChange={(e) => { setShareHandle(e.target.value); setShareError(""); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleAddCollaborator(); }}
-                  className="pl-7"
-                />
-              </div>
-              <Button onClick={handleAddCollaborator} disabled={shareLoading || !shareHandle.trim()}>
-                Add
-              </Button>
+          <div className="space-y-3">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search handles..."
+                value={shareSearch}
+                onChange={(e) => setShareSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
-          )}
 
-          {shareError && (
-            <p className="text-sm text-destructive">{shareError}</p>
-          )}
-
-          <div className="space-y-2 mt-2">
-            {/* Owner */}
-            {docOwner && (
-              <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-                <Avatar className="h-7 w-7">
-                  {docOwner.avatarUrl && <AvatarImage src={docOwner.avatarUrl} />}
-                  <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                    {(docOwner.name || docOwner.handle).charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{docOwner.name || docOwner.handle}</p>
-                  <p className="text-xs text-muted-foreground">@{docOwner.handle}</p>
-                </div>
-                <Badge variant="secondary" className="text-[10px]">Owner</Badge>
-              </div>
+            {shareError && (
+              <p className="text-sm text-destructive">{shareError}</p>
             )}
 
-            {/* Collaborators */}
-            {collaborators.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-lg px-2 py-2">
-                <Avatar className="h-7 w-7">
-                  {c.user.avatarUrl && <AvatarImage src={c.user.avatarUrl} />}
-                  <AvatarFallback className="text-xs bg-muted text-muted-foreground">
-                    {(c.user.name || c.user.handle).charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.user.name || c.user.handle}</p>
-                  <p className="text-xs text-muted-foreground">@{c.user.handle}</p>
-                </div>
-                <Badge variant="outline" className="text-[10px] capitalize">{c.role}</Badge>
-                {isOwner && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleRemoveCollaborator(c.id)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </Button>
-                )}
-              </div>
-            ))}
+            {/* User list */}
+            <div className="max-h-64 overflow-y-auto rounded-md border">
+              {allUsers
+                .filter((u) => u.id !== user?.id)
+                .filter((u) => {
+                  if (!shareSearch.trim()) return true;
+                  const q = shareSearch.toLowerCase().replace(/^@/, "");
+                  return u.handle.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q);
+                })
+                .map((u) => {
+                  const isShared = sharedUserIds.has(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      disabled={shareSaving || !isOwner}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent transition-colors disabled:opacity-50 border-b border-border/40 last:border-b-0"
+                      onClick={() => toggleShareUser(u)}
+                    >
+                      <Checkbox checked={isShared} className="pointer-events-none" />
+                      <Avatar className="h-7 w-7">
+                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                        <AvatarFallback className="text-[10px]">
+                          {(u.name || u.handle || "?").charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
+                        <p className="text-xs text-muted-foreground">@{u.handle}</p>
+                      </div>
+                      {isShared && (
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  );
+                })}
+              {allUsers.filter((u) => u.id !== user?.id).length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No other users yet
+                </p>
+              )}
+            </div>
 
-            {collaborators.length === 0 && (
-              <p className="py-4 text-center text-xs text-muted-foreground">
-                No collaborators yet. Add someone by their handle.
+            {sharedUserIds.size > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Shared with {sharedUserIds.size} {sharedUserIds.size === 1 ? "person" : "people"}
               </p>
             )}
           </div>
