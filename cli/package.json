@@ -1,11 +1,21 @@
 {
-  "name": "@markdocs/cli",
+  "name": "markdocs-cli",
   "version": "0.0.1",
+  "description": "CLI and MCP server for MarkDocs — collaborative markdown editor",
   "type": "module",
   "bin": {
     "markdocs": "./dist/index.js",
     "markdocs-mcp": "./dist/mcp.js"
   },
+  "keywords": ["markdocs", "markdown", "cli", "mcp", "collaborative-editing"],
+  "author": "Thakur Kharel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thakurkharel/markdocs",
+    "directory": "cli"
+  },
+  "homepage": "https://markdocs.sh",
   "scripts": {
     "build": "tsc",
     "bundle": "node build.mjs",
