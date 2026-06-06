@@ -37,6 +37,18 @@ markdocs suggest add <doc-id> --original "old" --suggested "new" --from 0 --to 3
 markdocs suggest accept <suggestion-id>
 markdocs suggest reject <suggestion-id>
 
+# Content
+markdocs content <doc-id>
+markdocs edit <doc-id> --content "# New content"
+markdocs edit <doc-id> --file ./draft.md
+
+# Sharing
+markdocs users
+markdocs share list <doc-id>
+markdocs share add <doc-id> @john
+markdocs share add <doc-id> @jane --role viewer
+markdocs share remove <doc-id> <collaborator-id>
+
 # History
 markdocs history <doc-id>
 ```
