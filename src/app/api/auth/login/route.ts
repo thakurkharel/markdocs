@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       handle: user.handle,
       name: user.name,
       avatarUrl: user.avatarUrl,
+      token,
     });
 
     response.cookies.set(COOKIE_NAME, token, {

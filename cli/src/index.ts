@@ -5,7 +5,9 @@ import chalk from "chalk";
 import ora from "ora";
 import { exec } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import * as client from "./client.js";
+import { loadConfig, saveConfig, configPath } from "./config.js";
 
 const program = new Command();
 
@@ -561,6 +563,140 @@ program
       spinner.fail("Failed to list users");
       printError(err);
     }
+  });
+
+// ─── Auth commands ──────────────────────────────────────────────────────────
+
+function prompt(question: string, hidden = false): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    if (hidden && process.stdin.isTTY) {
+      process.stdout.write(question);
+      let input = "";
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.setEncoding("utf8");
+      const onData = (char: string) => {
+        if (char === "\n" || char === "\r") {
+          process.stdin.setRawMode(false);
+          process.stdin.removeListener("data", onData);
+          process.stdout.write("\n");
+          rl.close();
+          resolve(input);
+        } else if (char === "\u0003") {
+          process.exit();
+        } else if (char === "\u007F") {
+          input = input.slice(0, -1);
+        } else {
+          input += char;
+        }
+      };
+      process.stdin.on("data", onData);
+    } else {
+      rl.question(hidden ? question : question, (answer) => {
+        rl.close();
+        resolve(answer);
+      });
+    }
+  });
+}
+
+program
+  .command("login")
+  .description("Log in to a MarkDocs instance")
+  .option("--url <url>", "Server URL")
+  .option("--handle <handle>", "Your handle")
+  .action(async (opts: { url?: string; handle?: string }) => {
+    try {
+      const config = await loadConfig();
+      const url = opts.url || config.url || process.env.MARKDOCS_URL || await prompt("Server URL (http://localhost:3001): ") || "http://localhost:3001";
+      const handle = opts.handle || await prompt("Handle: ");
+      const password = await prompt("Password: ", true);
+
+      if (!handle || !password) {
+        console.error(chalk.red("Handle and password are required."));
+        process.exit(1);
+      }
+
+      const spinner = ora("Logging in...").start();
+      const result = await client.login(handle, password, url);
+      spinner.succeed(chalk.green(`Logged in as @${result.handle}`));
+
+      await saveConfig({
+        ...config,
+        url,
+        handle: result.handle,
+        token: result.token,
+      });
+      console.log(chalk.gray(`  Config saved to ${configPath()}`));
+      console.log();
+      console.log(chalk.gray("  Run 'markdocs setup' to create an API key for CLI/MCP use."));
+    } catch (err) {
+      printError(err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("setup")
+  .description("Create an API key after login (for CLI and MCP server)")
+  .option("--name <name>", "Key name", "CLI")
+  .action(async (opts: { name: string }) => {
+    try {
+      const config = await loadConfig();
+      if (!config.token) {
+        console.error(chalk.red("Not logged in. Run 'markdocs login' first."));
+        process.exit(1);
+      }
+
+      const spinner = ora("Creating API key...").start();
+      const result = await client.createApiKey(opts.name, config.token);
+      spinner.succeed(chalk.green("API key created."));
+
+      await saveConfig({
+        ...config,
+        apiKey: result.key,
+      });
+
+      console.log();
+      console.log(chalk.gray(`  Key:    ${result.key}`));
+      console.log(chalk.gray(`  Prefix: ${result.prefix}`));
+      console.log(chalk.gray(`  Saved to ${configPath()}`));
+      console.log();
+      console.log(chalk.gray("  You're all set. The CLI and MCP server will use this key automatically."));
+    } catch (err) {
+      printError(err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("whoami")
+  .description("Show current auth status")
+  .action(async () => {
+    const config = await loadConfig();
+    if (config.apiKey) {
+      console.log(`  Authenticated with API key (${config.apiKey.slice(0, 12)}...)`);
+    } else if (config.token) {
+      console.log(`  Authenticated with JWT (logged in as @${config.handle || "unknown"})`);
+    } else if (process.env.MARKDOCS_API_KEY) {
+      console.log(`  Authenticated via MARKDOCS_API_KEY env var`);
+    } else {
+      console.log(chalk.yellow("  Not authenticated. Run 'markdocs login'."));
+    }
+    console.log(chalk.gray(`  Server: ${config.url || process.env.MARKDOCS_URL || "http://localhost:3001"}`));
+    console.log(chalk.gray(`  Config: ${configPath()}`));
+  });
+
+program
+  .command("logout")
+  .description("Clear saved credentials")
+  .action(async () => {
+    const config = await loadConfig();
+    await saveConfig({
+      url: config.url,
+    });
+    console.log(chalk.green("  Logged out. Credentials cleared."));
   });
 
 // ─── MCP subcommand ──────────────────────────────────────────────────────────

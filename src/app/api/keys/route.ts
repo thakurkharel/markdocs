@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getAuthUserId } from "@/lib/api-auth";
 import crypto from "crypto";
 
 function generateApiKey(): string {
@@ -11,8 +11,8 @@ function hashKey(key: string): string {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
-export async function GET() {
-  const userId = await getCurrentUserId();
+export async function GET(request: NextRequest) {
+  const userId = await getAuthUserId(request);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const keys = await prisma.apiKey.findMany({
@@ -32,7 +32,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId();
+  const userId = await getAuthUserId(request);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));

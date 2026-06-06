@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/auth";
+import { getCurrentUserId, verifyToken } from "@/lib/auth";
 import crypto from "crypto";
 
 export type AuthSource = "web" | "api";
@@ -46,6 +46,12 @@ export async function getAuth(request?: NextRequest): Promise<AuthResult> {
         }).catch(() => {});
 
         return { userId: apiKey.userId, source: "api" };
+      }
+
+      // Try as JWT token (from CLI login)
+      const jwtUserId = await verifyToken(token);
+      if (jwtUserId) {
+        return { userId: jwtUserId, source: "api" };
       }
 
       return { userId: null, source: "api" };

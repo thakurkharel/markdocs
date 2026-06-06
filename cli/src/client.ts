@@ -1,16 +1,17 @@
-const BASE_URL = process.env.MARKDOCS_URL || "http://localhost:3001";
-const API_KEY = process.env.MARKDOCS_API_KEY || "";
+import { resolveAuth } from "./config.js";
 
 interface RequestOptions {
   method?: string;
   body?: unknown;
   params?: Record<string, string>;
+  authOverride?: string; // For login-based requests using JWT directly
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, params } = options;
+  const { method = "GET", body, params, authOverride } = options;
+  const { url: baseUrl, authHeader } = await resolveAuth();
 
-  let url = `${BASE_URL}${path}`;
+  let url = `${baseUrl}${path}`;
   if (params) {
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -28,8 +29,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (body) {
     headers["Content-Type"] = "application/json";
   }
-  if (API_KEY) {
-    headers["Authorization"] = `Bearer ${API_KEY}`;
+  const auth = authOverride ? `Bearer ${authOverride}` : authHeader;
+  if (auth) {
+    headers["Authorization"] = auth;
   }
 
   const response = await fetch(url, {
@@ -49,6 +51,39 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   return response.json() as Promise<T>;
 }
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export async function login(
+  handle: string,
+  password: string,
+  serverUrl?: string
+): Promise<{ id: string; handle: string; name: string; token: string }> {
+  const url = serverUrl || process.env.MARKDOCS_URL || "http://localhost:3001";
+  const response = await fetch(`${url}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handle, password }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "Unknown error");
+    throw new Error(`Login failed: ${text}`);
+  }
+  return response.json();
+}
+
+export async function createApiKey(
+  name: string,
+  token?: string
+): Promise<{ key: string; prefix: string; name: string }> {
+  return request("/api/keys", {
+    method: "POST",
+    body: { name },
+    authOverride: token,
+  });
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
 
 export async function listDocuments(): Promise<unknown> {
   return request("/api/documents");
@@ -70,6 +105,19 @@ export async function deleteDocument(id: string): Promise<unknown> {
     method: "DELETE",
   });
 }
+
+export async function getDocumentContent(docId: string): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/content`);
+}
+
+export async function updateDocumentContent(docId: string, content: string): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/content`, {
+    method: "PUT",
+    body: { content },
+  });
+}
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
 
 export async function listComments(
   docId: string,
@@ -105,6 +153,8 @@ export async function deleteComment(commentId: string): Promise<unknown> {
     method: "DELETE",
   });
 }
+
+// ─── Suggestions ──────────────────────────────────────────────────────────────
 
 export async function listSuggestions(
   docId: string,
@@ -144,20 +194,13 @@ export async function updateSuggestion(
   });
 }
 
+// ─── History ──────────────────────────────────────────────────────────────────
+
 export async function getHistory(docId: string): Promise<unknown> {
   return request(`/api/documents/${encodeURIComponent(docId)}/history`);
 }
 
-export async function getDocumentContent(docId: string): Promise<unknown> {
-  return request(`/api/documents/${encodeURIComponent(docId)}/content`);
-}
-
-export async function updateDocumentContent(docId: string, content: string): Promise<unknown> {
-  return request(`/api/documents/${encodeURIComponent(docId)}/content`, {
-    method: "PUT",
-    body: { content },
-  });
-}
+// ─── Collaborators ────────────────────────────────────────────────────────────
 
 export async function listCollaborators(docId: string): Promise<unknown> {
   return request(`/api/documents/${encodeURIComponent(docId)}/collaborators`);
@@ -183,6 +226,8 @@ export async function unshareDocument(
     body: { collaboratorId },
   });
 }
+
+// ─── Users ────────────────────────────────────────────────────────────────────
 
 export async function listUsers(): Promise<unknown> {
   return request("/api/users");
