@@ -397,6 +397,172 @@ program
     }
   });
 
+// ─── Content commands ────────────────────────────────────────────────────────
+
+program
+  .command("content")
+  .description("Get the markdown content of a document")
+  .argument("<doc-id>", "Document ID")
+  .action(async (docId: string) => {
+    const spinner = ora("Fetching content...").start();
+    try {
+      const result = (await client.getDocumentContent(docId)) as Record<string, unknown>;
+      spinner.stop();
+      console.log(String(result.content ?? ""));
+    } catch (err) {
+      spinner.fail("Failed to get content");
+      printError(err);
+    }
+  });
+
+program
+  .command("edit")
+  .description("Update the markdown content of a document")
+  .argument("<doc-id>", "Document ID")
+  .option("--content <md>", "New markdown content")
+  .option("--file <path>", "Read content from a file")
+  .action(async (docId: string, opts: { content?: string; file?: string }) => {
+    if (!opts.content && !opts.file) {
+      console.error(chalk.red("Provide --content or --file"));
+      process.exit(1);
+    }
+    const spinner = ora("Updating content...").start();
+    try {
+      let content = opts.content;
+      if (opts.file) {
+        content = await readFile(opts.file, "utf-8");
+      }
+      await client.updateDocumentContent(docId, content!);
+      spinner.succeed(chalk.green("Document content updated."));
+    } catch (err) {
+      spinner.fail("Failed to update content");
+      printError(err);
+    }
+  });
+
+// ─── Share commands ─────────────────────────────────────────────────────────
+
+const share = program.command("share").description("Manage document sharing");
+
+share
+  .command("list")
+  .description("List collaborators on a document")
+  .argument("<doc-id>", "Document ID")
+  .action(async (docId: string) => {
+    const spinner = ora("Fetching collaborators...").start();
+    try {
+      const result = (await client.listCollaborators(docId)) as {
+        owner: Record<string, unknown>;
+        collaborators: Array<Record<string, unknown>>;
+      };
+      spinner.stop();
+
+      const owner = result.owner;
+      console.log(chalk.bold("\nOwner:\n"));
+      console.log(`  @${owner.handle} ${chalk.gray(owner.name ? `(${owner.name})` : "")}`);
+
+      if (result.collaborators.length > 0) {
+        console.log(chalk.bold("\nCollaborators:\n"));
+        console.log(
+          chalk.gray(
+            padEnd("ID", 40) + padEnd("Handle", 20) + padEnd("Role", 10) + "Name"
+          )
+        );
+        console.log(chalk.gray("─".repeat(80)));
+        for (const c of result.collaborators) {
+          const user = c.user as Record<string, unknown>;
+          console.log(
+            padEnd(String(c.id ?? ""), 40) +
+              padEnd(`@${user.handle}`, 20) +
+              padEnd(String(c.role ?? ""), 10) +
+              String(user.name ?? "")
+          );
+        }
+      } else {
+        console.log(chalk.yellow("\nNo collaborators."));
+      }
+      console.log();
+    } catch (err) {
+      spinner.fail("Failed to list collaborators");
+      printError(err);
+    }
+  });
+
+share
+  .command("add")
+  .description("Share a document with a user")
+  .argument("<doc-id>", "Document ID")
+  .argument("<handle>", "User handle (e.g. @john)")
+  .option("--role <role>", "Role: editor or viewer", "editor")
+  .action(async (docId: string, handle: string, opts: { role: string }) => {
+    const spinner = ora(`Sharing with @${handle.replace(/^@/, "")}...`).start();
+    try {
+      const result = (await client.shareDocument(docId, handle, opts.role)) as Record<
+        string,
+        unknown
+      >;
+      const user = result.user as Record<string, unknown>;
+      spinner.succeed(
+        chalk.green(`Shared with @${user.handle} as ${result.role}.`)
+      );
+    } catch (err) {
+      spinner.fail("Failed to share document");
+      printError(err);
+    }
+  });
+
+share
+  .command("remove")
+  .description("Remove a collaborator from a document")
+  .argument("<doc-id>", "Document ID")
+  .argument("<collaborator-id>", "Collaborator ID (from share list)")
+  .action(async (docId: string, collaboratorId: string) => {
+    const spinner = ora("Removing collaborator...").start();
+    try {
+      await client.unshareDocument(docId, collaboratorId);
+      spinner.succeed(chalk.green("Collaborator removed."));
+    } catch (err) {
+      spinner.fail("Failed to remove collaborator");
+      printError(err);
+    }
+  });
+
+// ─── Users command ──────────────────────────────────────────────────────────
+
+program
+  .command("users")
+  .description("List all users in the workspace")
+  .action(async () => {
+    const spinner = ora("Fetching users...").start();
+    try {
+      const users = (await client.listUsers()) as Array<Record<string, unknown>>;
+      spinner.stop();
+
+      if (!users || users.length === 0) {
+        console.log(chalk.yellow("No users found."));
+        return;
+      }
+
+      console.log(chalk.bold("\nUsers:\n"));
+      console.log(
+        chalk.gray(padEnd("Handle", 24) + padEnd("Name", 30) + "ID")
+      );
+      console.log(chalk.gray("─".repeat(90)));
+
+      for (const u of users) {
+        console.log(
+          padEnd(`@${u.handle}`, 24) +
+            padEnd(String(u.name ?? ""), 30) +
+            String(u.id ?? "")
+        );
+      }
+      console.log();
+    } catch (err) {
+      spinner.fail("Failed to list users");
+      printError(err);
+    }
+  });
+
 // ─── MCP subcommand ──────────────────────────────────────────────────────────
 
 program
