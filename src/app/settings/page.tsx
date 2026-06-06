@@ -249,8 +249,8 @@ export default function SettingsPage() {
 export MARKDOCS_URL=https://markdocs.sh`}
           </pre>
           <p className="mt-3 text-xs text-muted-foreground">
-            See the <a href="/docs/cli" className="text-primary hover:underline">CLI docs</a> and{" "}
-            <a href="/docs/mcp" className="text-primary hover:underline">MCP docs</a> for full setup guides.
+            See the <a href="https://markdocs.sh/docs/cli" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">CLI docs</a> and{" "}
+            <a href="https://markdocs.sh/docs/mcp" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">MCP docs</a> for full setup guides.
           </p>
         </div>
       </div>

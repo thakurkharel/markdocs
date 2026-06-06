@@ -10,3 +10,4 @@ cli/dist
 cli/node_modules
 *.tsbuildinfo
 supabase/.temp
+.mcp.json
