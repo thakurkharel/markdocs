@@ -7,14 +7,14 @@ export default function MCPDocsPage() {
       <p className="lead">
         Connect AI agents like Claude to MarkDocs using the
         Model Context Protocol (MCP). Your AI can create documents, leave comments,
-        make suggestions, and review edit history.
+        make suggestions, share documents, and review edit history.
       </p>
 
       <h2>What is MCP?</h2>
       <p>
         The <strong>Model Context Protocol</strong> is an open standard for connecting
         AI models to external tools and data sources. MarkDocs implements an MCP server
-        that exposes 13 tools and 2 resources, allowing any MCP-compatible AI agent to
+        that exposes 19 tools and 2 resources, allowing any MCP-compatible AI agent to
         interact with your documents.
       </p>
 
@@ -197,6 +197,30 @@ MARKDOCS_API_KEY=your-key ./bundle/markdocs-mcp.cjs`}</code></pre>
             <tr className="border-b border-border/50">
               <td className="py-2 font-mono text-xs text-foreground">get_history</td>
               <td className="py-2">Get edit history for a document</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">get_document_content</td>
+              <td className="py-2">Get the markdown content of a document</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">update_document_content</td>
+              <td className="py-2">Update the markdown content of a document</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">list_users</td>
+              <td className="py-2">List all users in the workspace</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">list_collaborators</td>
+              <td className="py-2">List collaborators on a document</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">share_document</td>
+              <td className="py-2">Share a document with a user by handle</td>
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 font-mono text-xs text-foreground">unshare_document</td>
+              <td className="py-2">Remove a collaborator from a document</td>
             </tr>
           </tbody>
         </table>

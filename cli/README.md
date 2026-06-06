@@ -106,6 +106,12 @@ Add to `.mcp.json`:
 | `accept_suggestion` | Accept a suggestion |
 | `reject_suggestion` | Reject a suggestion |
 | `get_history` | Get edit history |
+| `get_document_content` | Get markdown content of a document |
+| `update_document_content` | Update markdown content of a document |
+| `list_users` | List all users in the workspace |
+| `list_collaborators` | List collaborators on a document |
+| `share_document` | Share a document with a user |
+| `unshare_document` | Remove a collaborator |
 
 ## Docs
 

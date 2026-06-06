@@ -147,3 +147,43 @@ export async function updateSuggestion(
 export async function getHistory(docId: string): Promise<unknown> {
   return request(`/api/documents/${encodeURIComponent(docId)}/history`);
 }
+
+export async function getDocumentContent(docId: string): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/content`);
+}
+
+export async function updateDocumentContent(docId: string, content: string): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/content`, {
+    method: "PUT",
+    body: { content },
+  });
+}
+
+export async function listCollaborators(docId: string): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/collaborators`);
+}
+
+export async function shareDocument(
+  docId: string,
+  handle: string,
+  role: string = "editor"
+): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/collaborators`, {
+    method: "POST",
+    body: { handle, role },
+  });
+}
+
+export async function unshareDocument(
+  docId: string,
+  collaboratorId: string
+): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/collaborators`, {
+    method: "DELETE",
+    body: { collaboratorId },
+  });
+}
+
+export async function listUsers(): Promise<unknown> {
+  return request("/api/users");
+}

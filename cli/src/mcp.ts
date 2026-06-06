@@ -260,6 +260,117 @@ function createServer(): McpServer {
     }
   );
 
+  server.tool(
+    "get_document_content",
+    "Get the markdown content of a document",
+    {
+      document_id: z.string().describe("Document ID"),
+    },
+    async ({ document_id }) => {
+      try {
+        const result = await client.getDocumentContent(document_id);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to get document content", err);
+      }
+    }
+  );
+
+  server.tool(
+    "update_document_content",
+    "Update the markdown content of a document",
+    {
+      document_id: z.string().describe("Document ID"),
+      content: z.string().describe("New markdown content"),
+    },
+    async ({ document_id, content }) => {
+      try {
+        const result = await client.updateDocumentContent(document_id, content);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to update document content", err);
+      }
+    }
+  );
+
+  server.tool("list_users", "List all users in the workspace", {}, async () => {
+    try {
+      const users = await client.listUsers();
+      return {
+        content: [{ type: "text", text: JSON.stringify(users, null, 2) }],
+      };
+    } catch (err) {
+      return errorResult("Failed to list users", err);
+    }
+  });
+
+  server.tool(
+    "list_collaborators",
+    "List collaborators on a document (owner and shared users)",
+    {
+      document_id: z.string().describe("Document ID"),
+    },
+    async ({ document_id }) => {
+      try {
+        const result = await client.listCollaborators(document_id);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to list collaborators", err);
+      }
+    }
+  );
+
+  server.tool(
+    "share_document",
+    "Share a document with a user by their handle",
+    {
+      document_id: z.string().describe("Document ID"),
+      handle: z.string().describe("User handle (e.g. 'john' or '@john')"),
+      role: z
+        .enum(["editor", "viewer"])
+        .optional()
+        .default("editor")
+        .describe("Role to grant (default: editor)"),
+    },
+    async ({ document_id, handle, role }) => {
+      try {
+        const result = await client.shareDocument(document_id, handle, role);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to share document", err);
+      }
+    }
+  );
+
+  server.tool(
+    "unshare_document",
+    "Remove a collaborator from a document",
+    {
+      document_id: z.string().describe("Document ID"),
+      collaborator_id: z.string().describe("Collaborator ID (from list_collaborators)"),
+    },
+    async ({ document_id, collaborator_id }) => {
+      try {
+        await client.unshareDocument(document_id, collaborator_id);
+        return {
+          content: [
+            { type: "text", text: `Collaborator ${collaborator_id} removed successfully.` },
+          ],
+        };
+      } catch (err) {
+        return errorResult("Failed to unshare document", err);
+      }
+    }
+  );
+
   // ─── Resources ───────────────────────────────────────────────────────────────
 
   server.resource(
