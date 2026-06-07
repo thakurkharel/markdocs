@@ -28,9 +28,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
-} from "@/components/ui/dialog";
 import { useAuth } from "@/components/auth-provider";
 import { UserMenu } from "@/components/user-menu";
 import { useRealtimeTable } from "@/hooks/useRealtimeTable";
@@ -205,8 +202,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
 
-  // Share dialog
-  const [shareOpen, setShareOpen] = useState(false);
+  // Sharing
   const [shareSearch, setShareSearch] = useState("");
   const [shareError, setShareError] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
@@ -592,13 +588,9 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   }, [id, user?.id]);
 
   useEffect(() => {
-    if (shareOpen) {
-      fetchAllUsers();
-      fetchCollaborators();
-      setShareSearch("");
-      setShareError("");
-    }
-  }, [shareOpen, fetchAllUsers, fetchCollaborators]);
+    fetchAllUsers();
+    fetchCollaborators();
+  }, [fetchAllUsers, fetchCollaborators]);
 
   const shareUser = async (targetUser: { id: string; handle: string }, role: string) => {
     setShareError("");
@@ -660,7 +652,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   const sidebarContent = (
     <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex h-full flex-col">
-      <TabsList className="mx-3 mt-3 grid w-auto grid-cols-3">
+      <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
         <TabsTrigger value="comments" className="text-xs">
           Comments
           {activeCommentCount > 0 && (
@@ -679,6 +671,14 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         </TabsTrigger>
         <TabsTrigger value="history" className="text-xs">
           History
+        </TabsTrigger>
+        <TabsTrigger value="sharing" className="text-xs" onClick={() => { if (sidebarTab !== "sharing") { fetchAllUsers(); fetchCollaborators(); } }}>
+          Sharing
+          {sharedUsers.size > 0 && (
+            <Badge variant="secondary" className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+              {sharedUsers.size}
+            </Badge>
+          )}
         </TabsTrigger>
       </TabsList>
 
@@ -1022,6 +1022,101 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           </div>
         </ScrollArea>
       </TabsContent>
+
+      {/* ── Sharing Tab ──────────────────────────── */}
+      <TabsContent value="sharing" className="mt-0 flex-1 overflow-hidden">
+        <ScrollArea className="h-full">
+          <div className="space-y-3 p-4">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search handles..."
+                value={shareSearch}
+                onChange={(e) => setShareSearch(e.target.value)}
+                className="pl-9 h-8 text-sm"
+              />
+            </div>
+
+            {shareError && (
+              <p className="text-sm text-destructive">{shareError}</p>
+            )}
+
+            {/* User list */}
+            {allUsers
+              .filter((u) => u.id !== user?.id)
+              .filter((u) => {
+                if (!shareSearch.trim()) return true;
+                const q = shareSearch.toLowerCase().replace(/^@/, "");
+                return u.handle.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q);
+              })
+              .map((u) => {
+                const info = sharedUsers.get(u.id);
+                const isShared = !!info;
+                return (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5"
+                  >
+                    <Avatar className="h-7 w-7">
+                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                      <AvatarFallback className="text-[10px]">
+                        {(u.name || u.handle || "?").charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
+                      <p className="text-xs text-muted-foreground">@{u.handle}</p>
+                    </div>
+                    {isShared ? (
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={info.role}
+                          disabled={shareSaving || !isOwner}
+                          onChange={(e) => shareUser(u, e.target.value)}
+                          className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                        >
+                          <option value="editor">Editor</option>
+                          <option value="viewer">Viewer</option>
+                        </select>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          disabled={shareSaving || !isOwner}
+                          onClick={() => unshareUser(u.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-3 text-xs"
+                        disabled={shareSaving || !isOwner}
+                        onClick={() => shareUser(u, "editor")}
+                      >
+                        Share
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            {allUsers.filter((u) => u.id !== user?.id).length === 0 && (
+              <p className="py-8 text-center text-xs text-muted-foreground">
+                No other users yet
+              </p>
+            )}
+
+            {sharedUsers.size > 0 && (
+              <p className="text-xs text-muted-foreground text-center pt-2">
+                Shared with {sharedUsers.size} {sharedUsers.size === 1 ? "person" : "people"}
+              </p>
+            )}
+          </div>
+        </ScrollArea>
+      </TabsContent>
     </Tabs>
   );
 
@@ -1105,22 +1200,6 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
               ))}
             </div>
           )}
-
-          {/* Share button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5 px-2.5 text-xs"
-            onClick={() => setShareOpen(true)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <line x1="19" y1="8" x2="19" y2="14" />
-              <line x1="22" y1="11" x2="16" y2="11" />
-            </svg>
-            Share
-          </Button>
 
           {/* Current user */}
           <UserMenu />
@@ -1290,106 +1369,6 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         )}
       </div>
 
-      {/* Share Dialog */}
-      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Share Document</DialogTitle>
-            <DialogDescription>Select teammates to share with.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search handles..."
-                value={shareSearch}
-                onChange={(e) => setShareSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            {shareError && (
-              <p className="text-sm text-destructive">{shareError}</p>
-            )}
-
-            {/* User list */}
-            <div className="max-h-64 overflow-y-auto rounded-md border">
-              {allUsers
-                .filter((u) => u.id !== user?.id)
-                .filter((u) => {
-                  if (!shareSearch.trim()) return true;
-                  const q = shareSearch.toLowerCase().replace(/^@/, "");
-                  return u.handle.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q);
-                })
-                .map((u) => {
-                  const info = sharedUsers.get(u.id);
-                  const isShared = !!info;
-                  return (
-                    <div
-                      key={u.id}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 border-b border-border/40 last:border-b-0"
-                    >
-                      <Avatar className="h-7 w-7">
-                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                        <AvatarFallback className="text-[10px]">
-                          {(u.name || u.handle || "?").charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
-                        <p className="text-xs text-muted-foreground">@{u.handle}</p>
-                      </div>
-                      {isShared ? (
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={info.role}
-                            disabled={shareSaving || !isOwner}
-                            onChange={(e) => shareUser(u, e.target.value)}
-                            className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                          >
-                            <option value="editor">Editor</option>
-                            <option value="viewer">Viewer</option>
-                          </select>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                            disabled={shareSaving || !isOwner}
-                            onClick={() => unshareUser(u.id)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-3 text-xs"
-                          disabled={shareSaving || !isOwner}
-                          onClick={() => shareUser(u, "editor")}
-                        >
-                          Share
-                        </Button>
-                      )}
-                    </div>
-                  );
-                })}
-              {allUsers.filter((u) => u.id !== user?.id).length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No other users yet
-                </p>
-              )}
-            </div>
-
-            {sharedUsers.size > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Shared with {sharedUsers.size} {sharedUsers.size === 1 ? "person" : "people"}
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
