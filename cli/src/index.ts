@@ -554,7 +554,7 @@ program
   .description("Get the markdown content of a document")
   .argument("<doc-id>", "Document ID")
   .action(async (docId: string) => {
-    const spinner = ora("Fetching content...").start();
+    const spinner = ora({ text: "Fetching content...", stream: process.stderr }).start();
     try {
       const result = (await client.getDocumentContent(docId)) as Record<string, unknown>;
       spinner.stop();
