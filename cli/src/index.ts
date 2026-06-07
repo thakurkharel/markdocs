@@ -185,16 +185,47 @@ comment
 
 comment
   .command("add")
-  .description("Add a comment to a document")
+  .description("Add a comment to a document (use --on for text targeting, or --from/--to for position targeting)")
   .argument("<doc-id>", "Document ID")
   .requiredOption("--content <text>", "Comment text")
-  .requiredOption("--from <pos>", "Start position", parseInt)
-  .requiredOption("--to <pos>", "End position", parseInt)
+  .option("--on <text>", "Text to anchor the comment on (text-based targeting)")
+  .option("--from <pos>", "Start position", parseInt)
+  .option("--to <pos>", "End position", parseInt)
   .action(
     async (
       docId: string,
-      opts: { content: string; from: number; to: number }
+      opts: { content: string; on?: string; from?: number; to?: number }
     ) => {
+      // Text-based targeting via edit API
+      if (opts.on) {
+        const spinner = ora("Adding comment...").start();
+        try {
+          const result = await client.editDocument(docId, [
+            { op: "comment", on: opts.on, body: opts.content },
+          ]);
+          const res = result as Record<string, unknown>;
+          if (res.ok) {
+            spinner.succeed(chalk.green("Comment added."));
+          } else {
+            spinner.fail("Comment failed");
+            const results = (res.results as Array<Record<string, unknown>>) || [];
+            for (const r of results) {
+              if (!r.ok) console.error(chalk.red(`  ${r.error}`));
+            }
+          }
+          return;
+        } catch (err) {
+          spinner.fail("Failed to add comment");
+          printError(err);
+          return;
+        }
+      }
+
+      // Position-based fallback
+      if (opts.from === undefined || opts.to === undefined) {
+        console.error(chalk.red("Use --on <text>, or --from/--to for position targeting"));
+        process.exit(1);
+      }
       const spinner = ora("Adding comment...").start();
       try {
         const result = await client.addComment(docId, {
@@ -237,6 +268,89 @@ comment
       spinner.succeed(chalk.green(`Comment ${commentId} deleted.`));
     } catch (err) {
       spinner.fail("Failed to delete comment");
+      printError(err);
+    }
+  });
+
+comment
+  .command("reply")
+  .description("Reply to a comment thread")
+  .argument("<comment-id>", "Comment ID to reply to")
+  .requiredOption("--content <text>", "Reply text")
+  .option("--resolve", "Resolve the thread with this reply")
+  .action(
+    async (
+      commentId: string,
+      opts: { content: string; resolve?: boolean }
+    ) => {
+      const spinner = ora("Replying...").start();
+      try {
+        const result = await client.replyToComment(
+          commentId,
+          opts.content,
+          opts.resolve
+        );
+        spinner.succeed(chalk.green("Reply added."));
+        console.log(chalk.gray(JSON.stringify(result, null, 2)));
+      } catch (err) {
+        spinner.fail("Failed to reply");
+        printError(err);
+      }
+    }
+  );
+
+comment
+  .command("unresolve")
+  .description("Unresolve a previously resolved comment")
+  .argument("<comment-id>", "Comment ID")
+  .action(async (commentId: string) => {
+    const spinner = ora("Unresolving comment...").start();
+    try {
+      await client.unresolveComment(commentId);
+      spinner.succeed(chalk.green(`Comment ${commentId} unresolved.`));
+    } catch (err) {
+      spinner.fail("Failed to unresolve comment");
+      printError(err);
+    }
+  });
+
+comment
+  .command("threads")
+  .description("List comments as threaded conversations")
+  .argument("<doc-id>", "Document ID")
+  .action(async (docId: string) => {
+    const spinner = ora("Fetching threads...").start();
+    try {
+      const threads = (await client.listCommentsThreaded(docId)) as Array<
+        Record<string, unknown>
+      >;
+      spinner.stop();
+
+      if (!threads || threads.length === 0) {
+        console.log(chalk.yellow("No comment threads found."));
+        return;
+      }
+
+      for (const t of threads) {
+        const resolved = t.resolved ? chalk.green("[resolved]") : "";
+        const author =
+          (t.author as Record<string, unknown>)?.name ?? "Unknown";
+        console.log(
+          chalk.bold(`\n${author}`) +
+            ` ${resolved} ` +
+            chalk.gray(`(${String(t.id).slice(0, 8)}...)`)
+        );
+        console.log(`  ${t.content}`);
+        const replies = (t.replies as Array<Record<string, unknown>>) || [];
+        for (const r of replies) {
+          const rAuthor =
+            (r.author as Record<string, unknown>)?.name ?? "Unknown";
+          console.log(chalk.gray(`    ${rAuthor}: `) + String(r.content));
+        }
+      }
+      console.log();
+    } catch (err) {
+      spinner.fail("Failed to list threads");
       printError(err);
     }
   });
@@ -294,22 +408,56 @@ suggest
 
 suggest
   .command("add")
-  .description("Add a suggestion to a document")
+  .description("Add a suggestion to a document (use --find/--replace for text targeting, or --original/--suggested with --from/--to for position targeting)")
   .argument("<doc-id>", "Document ID")
-  .requiredOption("--original <text>", "Original text")
-  .requiredOption("--suggested <text>", "Suggested replacement text")
-  .requiredOption("--from <pos>", "Start position", parseInt)
-  .requiredOption("--to <pos>", "End position", parseInt)
+  .option("--find <text>", "Text to find (text-based targeting)")
+  .option("--replace <text>", "Suggested replacement (text-based targeting)")
+  .option("--original <text>", "Original text (position-based)")
+  .option("--suggested <text>", "Suggested replacement text (position-based)")
+  .option("--from <pos>", "Start position", parseInt)
+  .option("--to <pos>", "End position", parseInt)
   .action(
     async (
       docId: string,
       opts: {
-        original: string;
-        suggested: string;
-        from: number;
-        to: number;
+        find?: string;
+        replace?: string;
+        original?: string;
+        suggested?: string;
+        from?: number;
+        to?: number;
       }
     ) => {
+      // Text-based targeting via edit API
+      if (opts.find && opts.replace) {
+        const spinner = ora("Adding suggestion...").start();
+        try {
+          const result = await client.editDocument(docId, [
+            { op: "suggest", find: opts.find, replace: opts.replace },
+          ]);
+          const res = result as Record<string, unknown>;
+          if (res.ok) {
+            spinner.succeed(chalk.green("Suggestion added."));
+          } else {
+            spinner.fail("Suggestion failed");
+            const results = (res.results as Array<Record<string, unknown>>) || [];
+            for (const r of results) {
+              if (!r.ok) console.error(chalk.red(`  ${r.error}`));
+            }
+          }
+          return;
+        } catch (err) {
+          spinner.fail("Failed to add suggestion");
+          printError(err);
+          return;
+        }
+      }
+
+      // Position-based fallback
+      if (!opts.original || !opts.suggested || opts.from === undefined || opts.to === undefined) {
+        console.error(chalk.red("Use --find/--replace, or --original/--suggested with --from/--to"));
+        process.exit(1);
+      }
       const spinner = ora("Adding suggestion...").start();
       try {
         const result = await client.addSuggestion(docId, {
@@ -438,6 +586,34 @@ program
       spinner.succeed(chalk.green("Document content updated."));
     } catch (err) {
       spinner.fail("Failed to update content");
+      printError(err);
+    }
+  });
+
+program
+  .command("replace")
+  .description("Find and replace text in a document")
+  .argument("<doc-id>", "Document ID")
+  .requiredOption("--find <text>", "Text to find")
+  .requiredOption("--replace <text>", "Replacement text")
+  .action(async (docId: string, opts: { find: string; replace: string }) => {
+    const spinner = ora("Applying edit...").start();
+    try {
+      const result = await client.editDocument(docId, [
+        { op: "replace", find: opts.find, replace: opts.replace },
+      ]);
+      const res = result as Record<string, unknown>;
+      if (res.ok) {
+        spinner.succeed(chalk.green("Text replaced."));
+      } else {
+        spinner.fail("Edit failed");
+        const results = (res.results as Array<Record<string, unknown>>) || [];
+        for (const r of results) {
+          if (!r.ok) console.error(chalk.red(`  ${r.error}`));
+        }
+      }
+    } catch (err) {
+      spinner.fail("Failed to edit document");
       printError(err);
     }
   });

@@ -28,6 +28,8 @@ export async function GET(
     if (parentId) where.parentId = parentId;
     else if (parentId === null && searchParams.has("parentId")) where.parentId = null;
 
+    const threaded = searchParams.get("threaded") === "true";
+
     const comments = await prisma.comment.findMany({
       where,
       orderBy: { createdAt: "asc" },
@@ -40,6 +42,23 @@ export async function GET(
       ...c,
       author: users.get(c.authorId) || { id: c.authorId, name: null, avatarUrl: null },
     }));
+
+    if (threaded) {
+      // Group into threads: root comments with nested replies
+      const roots = enriched.filter((c) => !c.parentId);
+      const replies = enriched.filter((c) => c.parentId);
+      const threadMap = new Map<string, typeof enriched>();
+      for (const reply of replies) {
+        const arr = threadMap.get(reply.parentId!) || [];
+        arr.push(reply);
+        threadMap.set(reply.parentId!, arr);
+      }
+      const threads = roots.map((root) => ({
+        ...root,
+        replies: threadMap.get(root.id) || [],
+      }));
+      return NextResponse.json(threads);
+    }
 
     return NextResponse.json(enriched);
   } catch (error) {

@@ -243,6 +243,92 @@ function createServer(): McpServer {
   );
 
   server.tool(
+    "edit_document",
+    "Edit a document using text-based targeting. Operations find visible text by content, not by character position. Content ops (replace, insert, delete) apply first, then review ops (comment, suggest).",
+    {
+      document_id: z.string().describe("Document ID"),
+      operations: z.array(z.object({
+        op: z.enum(["replace", "insert", "delete", "comment", "suggest"]).describe("Operation type"),
+        find: z.string().optional().describe("Text to find (for replace, delete, suggest)"),
+        replace: z.string().optional().describe("Replacement text (for replace, suggest)"),
+        on: z.string().optional().describe("Text to anchor on (for comment)"),
+        body: z.string().optional().describe("Comment body (for comment)"),
+        text: z.string().optional().describe("Text to insert (for insert)"),
+        after: z.string().optional().describe("Insert after this text (for insert)"),
+        before: z.string().optional().describe("Insert before this text (for insert)"),
+        occurrence: z.union([z.number(), z.enum(["first", "last"])]).optional().describe("Which occurrence if target appears multiple times (0-indexed number, 'first', or 'last')"),
+      })).describe("Array of edit operations"),
+    },
+    async ({ document_id, operations }) => {
+      try {
+        const result = await client.editDocument(document_id, operations);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to edit document", err);
+      }
+    }
+  );
+
+  server.tool(
+    "reply_to_comment",
+    "Reply to a comment thread",
+    {
+      comment_id: z.string().describe("Comment ID to reply to"),
+      content: z.string().describe("Reply text"),
+      resolve: z.boolean().optional().describe("Resolve the thread with this reply"),
+    },
+    async ({ comment_id, content, resolve }) => {
+      try {
+        const result = await client.replyToComment(comment_id, content, resolve);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to reply to comment", err);
+      }
+    }
+  );
+
+  server.tool(
+    "unresolve_comment",
+    "Unresolve a previously resolved comment",
+    {
+      comment_id: z.string().describe("Comment ID"),
+    },
+    async ({ comment_id }) => {
+      try {
+        const result = await client.unresolveComment(comment_id);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to unresolve comment", err);
+      }
+    }
+  );
+
+  server.tool(
+    "list_comment_threads",
+    "List comments as threaded conversations (root comments with nested replies)",
+    {
+      document_id: z.string().describe("Document ID"),
+      resolved: z.boolean().optional().describe("Filter by resolved status"),
+    },
+    async ({ document_id, resolved }) => {
+      try {
+        const threads = await client.listCommentsThreaded(document_id, resolved);
+        return {
+          content: [{ type: "text", text: JSON.stringify(threads, null, 2) }],
+        };
+      } catch (err) {
+        return errorResult("Failed to list comment threads", err);
+      }
+    }
+  );
+
+  server.tool(
     "get_history",
     "Get edit history for a document",
     {

@@ -194,6 +194,50 @@ export async function updateSuggestion(
   });
 }
 
+// ─── Edit (text-based targeting) ──────────────────────────────────────────────
+
+export async function editDocument(
+  docId: string,
+  operations: Array<Record<string, unknown>>
+): Promise<unknown> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/edit`, {
+    method: "POST",
+    body: { operations },
+  });
+}
+
+// ─── Comment Threads ─────────────────────────────────────────────────────────
+
+export async function listCommentsThreaded(
+  docId: string,
+  resolved?: boolean
+): Promise<unknown> {
+  const params: Record<string, string> = { threaded: "true" };
+  if (resolved !== undefined) {
+    params.resolved = String(resolved);
+  }
+  return request(`/api/documents/${encodeURIComponent(docId)}/comments`, {
+    params,
+  });
+}
+
+export async function replyToComment(
+  commentId: string,
+  content: string,
+  resolve?: boolean
+): Promise<unknown> {
+  return request(`/api/comments/${encodeURIComponent(commentId)}/reply`, {
+    method: "POST",
+    body: { content, resolve },
+  });
+}
+
+export async function unresolveComment(commentId: string): Promise<unknown> {
+  return request(`/api/comments/${encodeURIComponent(commentId)}/unresolve`, {
+    method: "PATCH",
+  });
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
 
 export async function getHistory(docId: string): Promise<unknown> {
