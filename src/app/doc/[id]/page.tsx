@@ -58,6 +58,7 @@ interface Comment {
   resolvedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  replies?: Comment[];
 }
 
 interface Suggestion {
@@ -194,6 +195,8 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   // Comment form
   const [newComment, setNewComment] = useState("");
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number; text: string } | null>(null);
   const [floatingToolbarPos, setFloatingToolbarPos] = useState<{ x: number; y: number } | null>(null);
   const [showSuggestionInput, setShowSuggestionInput] = useState(false);
@@ -393,7 +396,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   const fetchComments = useCallback(async () => {
     try {
-      const res = await fetch(`/api/documents/${id}/comments`);
+      const res = await fetch(`/api/documents/${id}/comments?threaded=true`);
       if (res.ok) setComments(await res.json());
     } catch { /* ignore */ }
   }, [id]);
@@ -476,6 +479,29 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const handleDeleteComment = async (commentId: string) => {
     try {
       await fetch(`/api/comments/${commentId}`, { method: "DELETE" });
+      fetchComments();
+    } catch { /* ignore */ }
+  };
+
+  const handleReplyComment = async (commentId: string) => {
+    if (!replyText.trim()) return;
+    try {
+      await fetch(`/api/comments/${commentId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: replyText }),
+      });
+      setReplyText("");
+      setReplyingTo(null);
+      fetchComments();
+    } catch { /* ignore */ }
+  };
+
+  const handleUnresolveComment = async (commentId: string) => {
+    try {
+      await fetch(`/api/comments/${commentId}/unresolve`, {
+        method: "PATCH",
+      });
       fetchComments();
     } catch { /* ignore */ }
   };
@@ -713,28 +739,84 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 {commentFilter === "active" ? "No active comments" : "No resolved comments"}
               </p>
             ) : (
-              filteredComments.map((comment) => (
-                <Card key={comment.id} className={`p-3 ${comment.resolved ? "opacity-50" : ""}`}>
-                  <div className="flex items-center gap-2 mb-2">
+              filteredComments.map((thread) => (
+                <Card key={thread.id} className={`p-3 ${thread.resolved ? "opacity-50" : ""}`}>
+                  {/* Root comment */}
+                  <div className="flex items-center gap-2 mb-1.5">
                     <Avatar className="h-5 w-5">
-                      {comment.author.avatarUrl && (
-                        <AvatarImage src={comment.author.avatarUrl} alt={getDisplayName(comment.author)} />
+                      {thread.author.avatarUrl && (
+                        <AvatarImage src={thread.author.avatarUrl} alt={getDisplayName(thread.author)} />
                       )}
                       <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-                        {getUserInitial(comment.author.name)}
+                        {getUserInitial(thread.author.name)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-xs font-semibold">{getDisplayName(comment.author)}</span>
+                    <span className="text-xs font-semibold">{getDisplayName(thread.author)}</span>
+                    {thread.resolved && (
+                      <Badge variant="outline" className="h-4 px-1 text-[10px] text-green-600">resolved</Badge>
+                    )}
                     <span className="ml-auto text-[10px] text-muted-foreground">
-                      {formatRelativeTime(comment.createdAt)}
+                      {formatRelativeTime(thread.createdAt)}
                     </span>
                   </div>
-                  <p className="text-sm leading-relaxed mb-2">{comment.content}</p>
+                  <p className="text-sm leading-relaxed mb-2">{thread.content}</p>
+
+                  {/* Replies */}
+                  {thread.replies && thread.replies.length > 0 && (
+                    <div className="ml-4 border-l-2 border-muted pl-3 space-y-2 mb-2">
+                      {thread.replies.map((reply) => (
+                        <div key={reply.id}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <Avatar className="h-4 w-4">
+                              {reply.author.avatarUrl && (
+                                <AvatarImage src={reply.author.avatarUrl} alt={getDisplayName(reply.author)} />
+                              )}
+                              <AvatarFallback className="text-[8px] bg-primary text-primary-foreground">
+                                {getUserInitial(reply.author.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-[11px] font-medium">{getDisplayName(reply.author)}</span>
+                            <span className="text-[10px] text-muted-foreground">{formatRelativeTime(reply.createdAt)}</span>
+                          </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">{reply.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reply input */}
+                  {replyingTo === thread.id && (
+                    <div className="flex gap-1.5 mb-2">
+                      <Input
+                        placeholder="Reply..."
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReplyComment(thread.id); }}}
+                        className="h-7 text-xs"
+                        autoFocus
+                      />
+                      <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleReplyComment(thread.id)} disabled={!replyText.trim()}>
+                        Send
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Actions */}
                   <div className="flex gap-1 justify-end">
-                    {!comment.resolved && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(replyingTo === thread.id ? null : thread.id)} />}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                      </TooltipTrigger>
+                      <TooltipContent>Reply</TooltipContent>
+                    </Tooltip>
+                    {!thread.resolved ? (
                       <Tooltip>
                         <TooltipTrigger
-                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResolveComment(comment.id)} />}
+                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResolveComment(thread.id)} />}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12" />
@@ -742,10 +824,22 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                         </TooltipTrigger>
                         <TooltipContent>Resolve</TooltipContent>
                       </Tooltip>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUnresolveComment(thread.id)} />}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                          </svg>
+                        </TooltipTrigger>
+                        <TooltipContent>Unresolve</TooltipContent>
+                      </Tooltip>
                     )}
                     <Tooltip>
                       <TooltipTrigger
-                        render={<Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeleteComment(comment.id)} />}
+                        render={<Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeleteComment(thread.id)} />}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18" />
