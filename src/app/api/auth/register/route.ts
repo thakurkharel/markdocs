@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     });
 
     const token = await createToken(user.id);
-    const response = NextResponse.json(user, { status: 201 });
+    const response = NextResponse.json({ ...user, token }, { status: 201 });
     response.cookies.set(COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

@@ -778,6 +778,51 @@ function prompt(question: string, hidden = false): Promise<string> {
 }
 
 program
+  .command("signup")
+  .description("Create a new account on a MarkDocs instance")
+  .option("--url <url>", "Server URL")
+  .option("--handle <handle>", "Your handle")
+  .option("--name <name>", "Display name")
+  .option("--invite <code>", "Invite code (if required)")
+  .action(async (opts: { url?: string; handle?: string; name?: string; invite?: string }) => {
+    try {
+      const config = await loadConfig();
+      const url = opts.url || config.url || process.env.MARKDOCS_URL || await prompt("Server URL (http://localhost:3001): ") || "http://localhost:3001";
+      const handle = opts.handle || await prompt("Handle: ");
+      const name = opts.name || await prompt("Display name (optional): ") || undefined;
+      const password = await prompt("Password (min 8 chars): ", true);
+      const invite = opts.invite || undefined;
+
+      if (!handle || !password) {
+        console.error(chalk.red("Handle and password are required."));
+        process.exit(1);
+      }
+
+      if (password.length < 8) {
+        console.error(chalk.red("Password must be at least 8 characters."));
+        process.exit(1);
+      }
+
+      const spinner = ora("Creating account...").start();
+      const result = await client.signup(handle, password, name, invite, url);
+      spinner.succeed(chalk.green(`Account created! Logged in as @${result.handle}`));
+
+      await saveConfig({
+        ...config,
+        url,
+        handle: result.handle,
+        token: result.token,
+      });
+      console.log(chalk.gray(`  Config saved to ${configPath()}`));
+      console.log();
+      console.log(chalk.gray("  Run 'markdocs setup' to create an API key for CLI/MCP use."));
+    } catch (err) {
+      printError(err);
+      process.exit(1);
+    }
+  });
+
+program
   .command("login")
   .description("Log in to a MarkDocs instance")
   .option("--url <url>", "Server URL")

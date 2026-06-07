@@ -72,6 +72,26 @@ export async function login(
   return response.json();
 }
 
+export async function signup(
+  handle: string,
+  password: string,
+  name?: string,
+  invite?: string,
+  serverUrl?: string
+): Promise<{ id: string; handle: string; name: string; token: string }> {
+  const url = serverUrl || process.env.MARKDOCS_URL || "http://localhost:3001";
+  const response = await fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ handle, password, name, invite }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "Unknown error");
+    throw new Error(`Signup failed: ${text}`);
+  }
+  return response.json();
+}
+
 export async function createApiKey(
   name: string,
   token?: string
