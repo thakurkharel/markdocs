@@ -6,7 +6,7 @@ import * as client from "./client.js";
 function createServer(): McpServer {
   const server = new McpServer({
     name: "markdocs",
-    version: "0.0.1",
+    version: "0.0.2",
   });
 
   // ─── Tools ───────────────────────────────────────────────────────────────────
