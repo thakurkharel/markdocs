@@ -161,7 +161,7 @@ export default function SettingsPage() {
                     <div>
                       <p className="text-sm font-medium text-foreground">{k.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        <code className="rounded bg-muted px-1.5 py-0.5">{k.prefix}...{" "}</code>
+                        <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-zinc-400 font-mono">{k.prefix}...{" "}</code>
                         {k.lastUsedAt
                           ? `Last used ${new Date(k.lastUsedAt).toLocaleDateString()}`
                           : "Never used"
@@ -244,7 +244,7 @@ export default function SettingsPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             After creating an API key, configure your environment:
           </p>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-3 text-xs text-foreground">
+          <pre className="mt-3 overflow-x-auto rounded-lg border border-border bg-zinc-900 p-3 text-xs font-mono text-zinc-300">
 {`export MARKDOCS_API_KEY=mdk_your_key_here
 export MARKDOCS_URL=https://markdocs.sh`}
           </pre>
@@ -282,15 +282,40 @@ export MARKDOCS_URL=https://markdocs.sh`}
           <DialogHeader>
             <DialogTitle>API Key Created</DialogTitle>
             <DialogDescription>
-              Copy this key now. You won't be able to see it again.
+              Copy this key now. You won&apos;t be able to see it again.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">{newKey}</code>
-            <Button size="sm" variant="outline" onClick={() => handleCopy(newKey!)}>
-              {copied ? "Copied!" : "Copy"}
-            </Button>
+          <div className="rounded-lg border border-border bg-zinc-900 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <code className="flex-1 overflow-x-auto text-sm font-mono text-emerald-400 select-all break-all leading-relaxed">{newKey}</code>
+              <Button
+                size="sm"
+                variant={copied ? "default" : "outline"}
+                className={`shrink-0 ${copied ? "bg-emerald-600 hover:bg-emerald-600 text-white" : ""}`}
+                onClick={() => handleCopy(newKey!)}
+              >
+                {copied ? (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Store this key securely. It&apos;s used for CLI and MCP authentication.
+          </p>
           <DialogFooter>
             <Button onClick={() => setNewKey(null)}>Done</Button>
           </DialogFooter>
