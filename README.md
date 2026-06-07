@@ -46,10 +46,10 @@ Install the CLI for terminal and agent access:
 curl -fsSL https://markdocs.sh/install.sh | bash
 ```
 
-Authenticate and create an API key:
+Sign up (or log in) and create an API key:
 
 ```bash
-markdocs login --url http://localhost:3001 --handle yourhandle
+markdocs signup --url http://localhost:3001 --handle yourhandle --name "Your Name"
 markdocs setup
 ```
 
