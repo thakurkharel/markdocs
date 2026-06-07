@@ -1,6 +1,6 @@
 # MarkDocs CLI
 
-Command-line interface and MCP server for [MarkDocs](https://markdocs.sh) — collaborative markdown editing.
+Command-line interface and MCP server for [MarkDocs](https://markdocs.sh).
 
 ## Install
 
@@ -8,126 +8,108 @@ Command-line interface and MCP server for [MarkDocs](https://markdocs.sh) — co
 curl -fsSL https://markdocs.sh/install.sh | bash
 ```
 
+Or build from source:
+
+```bash
+cd cli && npm install && npm run bundle
+```
+
 ## Setup
 
 ```bash
+# Interactive login + API key creation
+markdocs login --url http://localhost:3001 --handle yourhandle
+markdocs setup
+
+# Or set credentials directly
 export MARKDOCS_API_KEY=your-api-key
-export MARKDOCS_URL=https://markdocs.sh  # or your self-hosted instance
+export MARKDOCS_URL=http://localhost:3001
 ```
 
-## Usage
+## Commands
+
+### Documents
 
 ```bash
-# Documents
-markdocs list
-markdocs create "My Document"
-markdocs view <id>
-markdocs open <id>
+markdocs list                          # List all documents
+markdocs create "My Document"          # Create a document
+markdocs create "From File" --file draft.md
+markdocs view <id>                     # View metadata
+markdocs open <id>                     # Open in browser
 markdocs delete <id>
+```
 
-# Comments
-markdocs comment list <doc-id>
-markdocs comment add <doc-id> --content "Fix this" --from 10 --to 20
+### Content
+
+```bash
+markdocs content <id>                  # Print markdown to stdout
+markdocs content <id> > doc.md         # Pipe to file
+markdocs edit <id> --content "# New"   # Full replace
+markdocs edit <id> --file updated.md
+```
+
+### Text-Based Editing
+
+```bash
+markdocs replace <id> --find "old text" --replace "new text"
+```
+
+### Comments
+
+```bash
+markdocs comment list <id>             # Flat list
+markdocs comment threads <id>          # Threaded view
+markdocs comment add <id> --content "Fix this" --on "anchor text"
+markdocs comment add <id> --content "Fix this" --from 10 --to 20
+markdocs comment reply <comment-id> --content "Done." --resolve
 markdocs comment resolve <comment-id>
+markdocs comment unresolve <comment-id>
 markdocs comment delete <comment-id>
+```
 
-# Suggestions
-markdocs suggest list <doc-id>
-markdocs suggest add <doc-id> --original "old" --suggested "new" --from 0 --to 3
+### Suggestions
+
+```bash
+markdocs suggest list <id>
+markdocs suggest add <id> --find "old" --replace "new"
 markdocs suggest accept <suggestion-id>
 markdocs suggest reject <suggestion-id>
+```
 
-# Content
-markdocs content <doc-id>
-markdocs edit <doc-id> --content "# New content"
-markdocs edit <doc-id> --file ./draft.md
+### Sharing
 
-# Sharing
-markdocs users
-markdocs share list <doc-id>
-markdocs share add <doc-id> @john
-markdocs share add <doc-id> @jane --role viewer
-markdocs share remove <doc-id> <collaborator-id>
+```bash
+markdocs users                         # List workspace users
+markdocs share list <id>               # List collaborators
+markdocs share add <id> @john          # Share as editor
+markdocs share add <id> @jane --role viewer
+markdocs share remove <id> <collab-id>
+```
 
-# History
-markdocs history <doc-id>
+### History & Auth
+
+```bash
+markdocs history <id>
+markdocs whoami
+markdocs logout
 ```
 
 ## MCP Server
 
-Connect AI agents (Claude, GPT, etc.) to MarkDocs via [Model Context Protocol](https://modelcontextprotocol.io).
-
-```bash
-# Run directly
-markdocs-mcp
-
-# Or via CLI
-markdocs mcp
-```
-
-### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+The CLI includes an MCP server with 23 tools. Your MCP client spawns it automatically:
 
 ```json
 {
   "mcpServers": {
     "markdocs": {
-      "command": "markdocs-mcp",
-      "env": {
-        "MARKDOCS_API_KEY": "your-key",
-        "MARKDOCS_URL": "https://markdocs.sh"
-      }
+      "command": "markdocs",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-### Claude Code
-
-Add to `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "markdocs": {
-      "command": "markdocs-mcp",
-      "env": {
-        "MARKDOCS_API_KEY": "your-key",
-        "MARKDOCS_URL": "https://markdocs.sh"
-      }
-    }
-  }
-}
-```
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `list_documents` | List all documents |
-| `create_document` | Create a new document |
-| `get_document` | Get document by ID |
-| `delete_document` | Delete a document |
-| `list_comments` | List comments on a document |
-| `add_comment` | Add an inline comment |
-| `resolve_comment` | Resolve a comment |
-| `delete_comment` | Delete a comment |
-| `list_suggestions` | List suggestions |
-| `add_suggestion` | Propose a text change |
-| `accept_suggestion` | Accept a suggestion |
-| `reject_suggestion` | Reject a suggestion |
-| `get_history` | Get edit history |
-| `get_document_content` | Get markdown content of a document |
-| `update_document_content` | Update markdown content of a document |
-| `list_users` | List all users in the workspace |
-| `list_collaborators` | List collaborators on a document |
-| `share_document` | Share a document with a user |
-| `unshare_document` | Remove a collaborator |
-
-## Docs
-
-Full documentation at [markdocs.sh/docs](https://markdocs.sh/docs)
+See the [MCP docs](https://markdocs.sh/docs/mcp) for the full tool list.
 
 ## License
 
