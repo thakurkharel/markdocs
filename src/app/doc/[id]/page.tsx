@@ -204,7 +204,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
   // Mobile sidebar
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
 
   // Share dialog
   const [shareOpen, setShareOpen] = useState(false);
@@ -740,9 +740,9 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
               </p>
             ) : (
               filteredComments.map((thread) => (
-                <Card key={thread.id} className={`p-3 ${thread.resolved ? "opacity-50" : ""}`}>
-                  {/* Root comment */}
-                  <div className="flex items-center gap-2 mb-1.5">
+                <div key={thread.id} className={`rounded-lg border border-border overflow-hidden ${thread.resolved ? "opacity-60" : ""}`}>
+                  {/* Thread header */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
                     <Avatar className="h-5 w-5">
                       {thread.author.avatarUrl && (
                         <AvatarImage src={thread.author.avatarUrl} alt={getDisplayName(thread.author)} />
@@ -751,34 +751,43 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                         {getUserInitial(thread.author.name)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-xs font-semibold">{getDisplayName(thread.author)}</span>
+                    <span className="text-xs font-semibold flex-1">{getDisplayName(thread.author)}</span>
                     {thread.resolved && (
-                      <Badge variant="outline" className="h-4 px-1 text-[10px] text-green-600">resolved</Badge>
+                      <Badge variant="outline" className="h-4 px-1.5 text-[10px] text-green-600 border-green-600/30 bg-green-600/5">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="mr-0.5">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        resolved
+                      </Badge>
                     )}
-                    <span className="ml-auto text-[10px] text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground">
                       {formatRelativeTime(thread.createdAt)}
                     </span>
                   </div>
-                  <p className="text-sm leading-relaxed mb-2">{thread.content}</p>
+
+                  {/* Thread body */}
+                  <div className="px-3 py-2.5">
+                    <p className="text-sm leading-relaxed">{thread.content}</p>
+                  </div>
 
                   {/* Replies */}
                   {thread.replies && thread.replies.length > 0 && (
-                    <div className="ml-4 border-l-2 border-muted pl-3 space-y-2 mb-2">
-                      {thread.replies.map((reply) => (
-                        <div key={reply.id}>
-                          <div className="flex items-center gap-1.5 mb-0.5">
+                    <div className="border-t border-border/50 bg-muted/10">
+                      {thread.replies.map((reply, ri) => (
+                        <div key={reply.id} className={`px-3 py-2 ${ri > 0 ? "border-t border-border/30" : ""}`}>
+                          <div className="flex items-center gap-1.5 mb-1">
                             <Avatar className="h-4 w-4">
                               {reply.author.avatarUrl && (
                                 <AvatarImage src={reply.author.avatarUrl} alt={getDisplayName(reply.author)} />
                               )}
-                              <AvatarFallback className="text-[8px] bg-primary text-primary-foreground">
+                              <AvatarFallback className="text-[8px] bg-muted-foreground/20 text-muted-foreground">
                                 {getUserInitial(reply.author.name)}
                               </AvatarFallback>
                             </Avatar>
                             <span className="text-[11px] font-medium">{getDisplayName(reply.author)}</span>
-                            <span className="text-[10px] text-muted-foreground">{formatRelativeTime(reply.createdAt)}</span>
+                            <span className="text-[10px] text-muted-foreground ml-auto">{formatRelativeTime(reply.createdAt)}</span>
                           </div>
-                          <p className="text-xs leading-relaxed text-muted-foreground">{reply.content}</p>
+                          <p className="text-xs leading-relaxed text-foreground/80 pl-5.5">{reply.content}</p>
                         </div>
                       ))}
                     </div>
@@ -786,70 +795,74 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
                   {/* Reply input */}
                   {replyingTo === thread.id && (
-                    <div className="flex gap-1.5 mb-2">
+                    <div className="flex gap-1.5 px-3 py-2 border-t border-border/50 bg-muted/20">
                       <Input
-                        placeholder="Reply..."
+                        placeholder="Write a reply..."
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReplyComment(thread.id); }}}
-                        className="h-7 text-xs"
+                        className="h-7 text-xs flex-1"
                         autoFocus
                       />
-                      <Button size="sm" className="h-7 px-2 text-xs" onClick={() => handleReplyComment(thread.id)} disabled={!replyText.trim()}>
-                        Send
+                      <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => handleReplyComment(thread.id)} disabled={!replyText.trim()}>
+                        Reply
                       </Button>
                     </div>
                   )}
 
-                  {/* Actions */}
-                  <div className="flex gap-1 justify-end">
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(replyingTo === thread.id ? null : thread.id)} />}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                        </svg>
-                      </TooltipTrigger>
-                      <TooltipContent>Reply</TooltipContent>
-                    </Tooltip>
+                  {/* Actions bar */}
+                  <div className="flex items-center gap-0.5 px-2 py-1.5 border-t border-border/50 bg-muted/10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+                      onClick={() => setReplyingTo(replyingTo === thread.id ? null : thread.id)}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                      Reply
+                    </Button>
                     {!thread.resolved ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleResolveComment(thread.id)} />}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </TooltipTrigger>
-                        <TooltipContent>Resolve</TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUnresolveComment(thread.id)} />}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                            <path d="M3 3v5h5" />
-                          </svg>
-                        </TooltipTrigger>
-                        <TooltipContent>Unresolve</TooltipContent>
-                      </Tooltip>
-                    )}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={<Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => handleDeleteComment(thread.id)} />}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[11px] text-muted-foreground hover:text-green-600 gap-1"
+                        onClick={() => handleResolveComment(thread.id)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
                         </svg>
-                      </TooltipTrigger>
-                      <TooltipContent>Delete</TooltipContent>
-                    </Tooltip>
+                        Resolve
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+                        onClick={() => handleUnresolveComment(thread.id)}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                          <path d="M3 3v5h5" />
+                        </svg>
+                        Reopen
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive gap-1 ml-auto"
+                      onClick={() => handleDeleteComment(thread.id)}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                      </svg>
+                      Delete
+                    </Button>
                   </div>
-                </Card>
+                </div>
               ))
             )}
           </div>
