@@ -33,9 +33,8 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/auth-provider";
 import { UserMenu } from "@/components/user-menu";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useRealtimeTable } from "@/hooks/useRealtimeTable";
-import { Search, Check } from "lucide-react";
+import { Search } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -212,7 +211,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const [shareError, setShareError] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
   const [allUsers, setAllUsers] = useState<{ id: string; handle: string; name: string | null; avatarUrl: string | null }[]>([]);
-  const [sharedUserIds, setSharedUserIds] = useState<Set<string>>(new Set());
+  const [sharedUsers, setSharedUsers] = useState<Map<string, { collabId: string; role: string }>>(new Map());
   const [isOwner, setIsOwner] = useState(false);
 
   // Refs
@@ -582,8 +581,11 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       const res = await fetch(`/api/documents/${id}/collaborators`);
       if (res.ok) {
         const data = await res.json();
-        const ids = new Set<string>((data.collaborators || []).map((c: any) => c.user.id));
-        setSharedUserIds(ids);
+        const map = new Map<string, { collabId: string; role: string }>();
+        for (const c of data.collaborators || []) {
+          map.set(c.user.id, { collabId: c.id, role: c.role });
+        }
+        setSharedUsers(map);
         setIsOwner(data.owner?.id === user?.id);
       }
     } catch { /* ignore */ }
@@ -598,41 +600,44 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
     }
   }, [shareOpen, fetchAllUsers, fetchCollaborators]);
 
-  const toggleShareUser = async (targetUser: { id: string; handle: string }) => {
+  const shareUser = async (targetUser: { id: string; handle: string }, role: string) => {
     setShareError("");
     setShareSaving(true);
-    const isShared = sharedUserIds.has(targetUser.id);
-
     try {
-      if (isShared) {
-        const res = await fetch(`/api/documents/${id}/collaborators`);
-        if (res.ok) {
-          const data = await res.json();
-          const collab = (data.collaborators || []).find((c: any) => c.user.id === targetUser.id);
-          if (collab) {
-            await fetch(`/api/documents/${id}/collaborators`, {
-              method: "DELETE",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ collaboratorId: collab.id }),
-            });
-          }
-        }
-        setSharedUserIds((prev) => { const next = new Set(prev); next.delete(targetUser.id); return next; });
+      const res = await fetch(`/api/documents/${id}/collaborators`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: targetUser.handle, role }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSharedUsers((prev) => new Map(prev).set(targetUser.id, { collabId: data.id, role }));
       } else {
-        const res = await fetch(`/api/documents/${id}/collaborators`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ handle: targetUser.handle }),
-        });
-        if (res.ok) {
-          setSharedUserIds((prev) => new Set(prev).add(targetUser.id));
-        } else {
-          const err = await res.json();
-          setShareError(err.error || "Failed to share");
-        }
+        const err = await res.json();
+        setShareError(err.error || "Failed to share");
       }
     } catch {
       setShareError("Failed to update sharing");
+    } finally {
+      setShareSaving(false);
+    }
+  };
+
+  const unshareUser = async (targetUserId: string) => {
+    setShareError("");
+    setShareSaving(true);
+    try {
+      const info = sharedUsers.get(targetUserId);
+      if (info) {
+        await fetch(`/api/documents/${id}/collaborators`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ collaboratorId: info.collabId }),
+        });
+      }
+      setSharedUsers((prev) => { const next = new Map(prev); next.delete(targetUserId); return next; });
+    } catch {
+      setShareError("Failed to remove collaborator");
     } finally {
       setShareSaving(false);
     }
@@ -1318,16 +1323,13 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                   return u.handle.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q);
                 })
                 .map((u) => {
-                  const isShared = sharedUserIds.has(u.id);
+                  const info = sharedUsers.get(u.id);
+                  const isShared = !!info;
                   return (
-                    <button
+                    <div
                       key={u.id}
-                      type="button"
-                      disabled={shareSaving || !isOwner}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent transition-colors disabled:opacity-50 border-b border-border/40 last:border-b-0"
-                      onClick={() => toggleShareUser(u)}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 border-b border-border/40 last:border-b-0"
                     >
-                      <Checkbox checked={isShared} className="pointer-events-none" />
                       <Avatar className="h-7 w-7">
                         {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
                         <AvatarFallback className="text-[10px]">
@@ -1338,10 +1340,39 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                         <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
                         <p className="text-xs text-muted-foreground">@{u.handle}</p>
                       </div>
-                      {isShared && (
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                      {isShared ? (
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={info.role}
+                            disabled={shareSaving || !isOwner}
+                            onChange={(e) => shareUser(u, e.target.value)}
+                            className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                          >
+                            <option value="editor">Editor</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                            disabled={shareSaving || !isOwner}
+                            onClick={() => unshareUser(u.id)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-3 text-xs"
+                          disabled={shareSaving || !isOwner}
+                          onClick={() => shareUser(u, "editor")}
+                        >
+                          Share
+                        </Button>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               {allUsers.filter((u) => u.id !== user?.id).length === 0 && (
@@ -1351,9 +1382,9 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
               )}
             </div>
 
-            {sharedUserIds.size > 0 && (
+            {sharedUsers.size > 0 && (
               <p className="text-xs text-muted-foreground">
-                Shared with {sharedUserIds.size} {sharedUserIds.size === 1 ? "person" : "people"}
+                Shared with {sharedUsers.size} {sharedUsers.size === 1 ? "person" : "people"}
               </p>
             )}
           </div>
