@@ -138,6 +138,11 @@
 .cm-editor .cm-content {
   padding: 16px 0;
   font-family: var(--font-mono, ui-monospace, monospace);
+  caret-color: #1a1a1a !important;
+}
+
+.dark .cm-editor .cm-content {
+  caret-color: #f5f5f5 !important;
 }
 
 .cm-editor .cm-gutters {
@@ -150,16 +155,14 @@
   background: hsl(var(--muted) / 0.3);
 }
 
-.cm-editor .cm-cursor {
-  border-left: 2.5px solid hsl(var(--foreground));
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left: 2.5px solid #1a1a1a !important;
 }
 
-/* Ensure cursor is visible in both themes */
-:root .cm-editor .cm-cursor {
-  border-left-color: #1a1a1a;
-}
-.dark .cm-editor .cm-cursor {
-  border-left-color: #f5f5f5;
+.dark .cm-editor .cm-cursor,
+.dark .cm-editor .cm-dropCursor {
+  border-left: 2.5px solid #f5f5f5 !important;
 }
 
 .cm-editor .cm-selectionBackground {
