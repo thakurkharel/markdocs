@@ -1,0 +1,7 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npx prisma migrate deploy && npx tsx server.ts"
+healthcheckPath = "/"
+restartPolicyType = "on_failure"
