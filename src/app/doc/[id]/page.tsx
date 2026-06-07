@@ -7,7 +7,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Compartment } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { yCollab } from "y-codemirror.next";
 import { ViewPlugin } from "@codemirror/view";
@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -209,6 +210,8 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const [allUsers, setAllUsers] = useState<{ id: string; handle: string; name: string | null; avatarUrl: string | null }[]>([]);
   const [sharedUsers, setSharedUsers] = useState<Map<string, { collabId: string; role: string }>>(new Map());
   const [isOwner, setIsOwner] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const canEdit = userRole === "owner" || userRole === "editor";
 
   // Refs
   const editorRef = useRef<HTMLDivElement>(null);
@@ -216,6 +219,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
   const ytextRef = useRef<Y.Text | null>(null);
+  const readOnlyCompartment = useRef(new Compartment());
 
   // ── User Setup ─────────────────────────────────────────────
 
@@ -241,6 +245,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         if (res.ok) {
           const doc = await res.json();
           setDocTitle(doc.title);
+          if (doc.userRole) setUserRole(doc.userRole);
         }
       } catch {
         // Document might not exist yet in API
@@ -365,6 +370,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           updateListener,
           yCollab(ytext, provider.awareness),
           cursorAvatarPlugin,
+          readOnlyCompartment.current.of(EditorState.readOnly.of(false)),
         ],
       }),
     });
@@ -386,6 +392,17 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       ydoc.destroy();
     };
   }, [id, resolvedTheme]);
+
+  // ── Toggle editor readOnly based on role ─────────────────
+  useEffect(() => {
+    const view = editorViewRef.current;
+    if (!view || userRole === null) return;
+    view.dispatch({
+      effects: readOnlyCompartment.current.reconfigure(
+        EditorState.readOnly.of(!canEdit)
+      ),
+    });
+  }, [userRole, canEdit]);
 
   // ── Fetch Sidebar Data ────────────────────────────────────
 
@@ -653,29 +670,29 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const sidebarContent = (
     <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex h-full flex-col">
       <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
-        <TabsTrigger value="comments" className="text-xs">
+        <TabsTrigger value="comments">
           Comments
           {activeCommentCount > 0 && (
-            <Badge variant="secondary" className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[11px]">
               {activeCommentCount}
             </Badge>
           )}
         </TabsTrigger>
-        <TabsTrigger value="suggestions" className="text-xs">
+        <TabsTrigger value="suggestions">
           Suggestions
           {pendingSuggestionCount > 0 && (
-            <Badge variant="secondary" className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[11px]">
               {pendingSuggestionCount}
             </Badge>
           )}
         </TabsTrigger>
-        <TabsTrigger value="history" className="text-xs">
+        <TabsTrigger value="history">
           History
         </TabsTrigger>
-        <TabsTrigger value="sharing" className="text-xs" onClick={() => { if (sidebarTab !== "sharing") { fetchAllUsers(); fetchCollaborators(); } }}>
+        <TabsTrigger value="sharing" onClick={() => { if (sidebarTab !== "sharing") { fetchAllUsers(); fetchCollaborators(); } }}>
           Sharing
           {sharedUsers.size > 0 && (
-            <Badge variant="secondary" className="ml-1.5 h-4 min-w-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[11px]">
               {sharedUsers.size}
             </Badge>
           )}
@@ -701,7 +718,6 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 className="resize-none text-sm"
               />
               <Button
-                size="sm"
                 onClick={handleAddComment}
                 disabled={!newComment.trim()}
                 className="w-full"
@@ -714,23 +730,23 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
             {/* Filter */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Filter</span>
+              <span className="text-sm font-medium text-muted-foreground">Filter</span>
               <div className="flex gap-1">
                 <Button
                   variant={commentFilter === "active" ? "secondary" : "ghost"}
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="h-8 px-3 text-sm"
                   onClick={() => setCommentFilter("active")}
                 >
                   Active
                   {activeCommentCount > 0 && (
-                    <Badge variant="outline" className="ml-1 h-4 min-w-4 px-1 text-[10px]">{activeCommentCount}</Badge>
+                    <Badge variant="outline" className="ml-1 h-5 min-w-5 px-1.5 text-[11px]">{activeCommentCount}</Badge>
                   )}
                 </Button>
                 <Button
                   variant={commentFilter === "resolved" ? "secondary" : "ghost"}
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="h-8 px-3 text-sm"
                   onClick={() => setCommentFilter("resolved")}
                 >
                   Resolved
@@ -800,30 +816,30 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
 
                   {/* Reply input */}
                   {replyingTo === thread.id && (
-                    <div className="flex gap-1.5 px-3 py-2 border-t border-border/50 bg-muted/20">
+                    <div className="flex gap-2 px-3 py-2.5 border-t border-border/50 bg-muted/20">
                       <Input
                         placeholder="Write a reply..."
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReplyComment(thread.id); }}}
-                        className="h-7 text-xs flex-1"
+                        className="h-8 text-sm flex-1"
                         autoFocus
                       />
-                      <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => handleReplyComment(thread.id)} disabled={!replyText.trim()}>
+                      <Button size="sm" className="h-8 px-3 text-sm" onClick={() => handleReplyComment(thread.id)} disabled={!replyText.trim()}>
                         Reply
                       </Button>
                     </div>
                   )}
 
                   {/* Actions bar */}
-                  <div className="flex items-center gap-0.5 px-2 py-1.5 border-t border-border/50 bg-muted/10">
+                  <div className="flex items-center gap-1 px-2 py-1.5 border-t border-border/50 bg-muted/10">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+                      className="h-8 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5"
                       onClick={() => setReplyingTo(replyingTo === thread.id ? null : thread.id)}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                       </svg>
                       Reply
@@ -832,10 +848,10 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-[11px] text-muted-foreground hover:text-green-600 gap-1"
+                        className="h-8 px-3 text-xs text-muted-foreground hover:text-green-600 gap-1.5"
                         onClick={() => handleResolveComment(thread.id)}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                         Resolve
@@ -844,10 +860,10 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
+                        className="h-8 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5"
                         onClick={() => handleUnresolveComment(thread.id)}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                           <path d="M3 3v5h5" />
                         </svg>
@@ -857,10 +873,10 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive gap-1 ml-auto"
+                      className="h-8 px-3 text-xs text-muted-foreground hover:text-destructive gap-1.5 ml-auto"
                       onClick={() => handleDeleteComment(thread.id)}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M3 6h18" />
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
                       </svg>
@@ -880,14 +896,14 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           <div className="space-y-3 p-4">
             {/* Filter */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Filter</span>
+              <span className="text-sm font-medium text-muted-foreground">Filter</span>
               <div className="flex gap-1">
                 {(["all", "pending", "accepted", "rejected"] as const).map((f) => (
                   <Button
                     key={f}
                     variant={suggestionFilter === f ? "secondary" : "ghost"}
                     size="sm"
-                    className="h-6 px-2 text-xs capitalize"
+                    className="h-8 px-3 text-sm capitalize"
                     onClick={() => setSuggestionFilter(f)}
                   >
                     {f}
@@ -936,14 +952,14 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                     {formatRelativeTime(suggestion.createdAt)}
                   </div>
                   {suggestion.status === "pending" && (
-                    <div className="mt-2 flex gap-1 justify-end">
+                    <div className="mt-2 flex gap-1.5 justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
+                        className="h-8 px-3 text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
                         onClick={() => handleAcceptSuggestion(suggestion)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                         Accept
@@ -951,10 +967,10 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        className="h-8 px-3 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => handleRejectSuggestion(suggestion.id)}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5">
                           <line x1="18" y1="6" x2="6" y2="18" />
                           <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
@@ -974,8 +990,8 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         <ScrollArea className="h-full">
           <div className="space-y-1 p-4">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-muted-foreground">Timeline</span>
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={fetchHistory}>
+              <span className="text-sm font-medium text-muted-foreground">Timeline</span>
+              <Button variant="ghost" size="sm" className="h-8 px-3 text-sm" onClick={fetchHistory}>
                 Refresh
               </Button>
             </div>
@@ -1034,7 +1050,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 placeholder="Search handles..."
                 value={shareSearch}
                 onChange={(e) => setShareSearch(e.target.value)}
-                className="pl-9 h-8 text-sm"
+                className="pl-9 h-9 text-sm"
               />
             </div>
 
@@ -1056,49 +1072,56 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 return (
                   <div
                     key={u.id}
-                    className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5"
+                    className="rounded-lg border border-border px-3 py-3"
                   >
-                    <Avatar className="h-7 w-7">
-                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                      <AvatarFallback className="text-[10px]">
-                        {(u.name || u.handle || "?").charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
-                      <p className="text-xs text-muted-foreground">@{u.handle}</p>
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-8 w-8">
+                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                        <AvatarFallback className="text-xs">
+                          {(u.name || u.handle || "?").charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{u.name || u.handle}</p>
+                        <p className="text-xs text-muted-foreground">@{u.handle}</p>
+                      </div>
+                      {!isShared && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-4 text-sm"
+                          disabled={shareSaving || !isOwner}
+                          onClick={() => shareUser(u, "editor")}
+                        >
+                          Share
+                        </Button>
+                      )}
                     </div>
-                    {isShared ? (
-                      <div className="flex items-center gap-1.5">
-                        <select
+                    {isShared && (
+                      <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border/50">
+                        <Select
                           value={info.role}
                           disabled={shareSaving || !isOwner}
-                          onChange={(e) => shareUser(u, e.target.value)}
-                          className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                          onValueChange={(val) => val && shareUser(u, val)}
                         >
-                          <option value="editor">Editor</option>
-                          <option value="viewer">Viewer</option>
-                        </select>
+                          <SelectTrigger className="h-8 px-3 text-sm flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="editor">Editor</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="h-8 px-3 text-sm text-destructive hover:text-destructive hover:bg-destructive/10"
                           disabled={shareSaving || !isOwner}
                           onClick={() => unshareUser(u.id)}
                         >
                           Remove
                         </Button>
                       </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-3 text-xs"
-                        disabled={shareSaving || !isOwner}
-                        onClick={() => shareUser(u, "editor")}
-                      >
-                        Share
-                      </Button>
                     )}
                   </div>
                 );
@@ -1141,11 +1164,15 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           </Tooltip>
           <Input
             value={docTitle}
-            onChange={(e) => setDocTitle(e.target.value)}
-            onBlur={(e) => handleTitleBlur(e.target.value)}
+            onChange={(e) => canEdit && setDocTitle(e.target.value)}
+            onBlur={(e) => canEdit && handleTitleBlur(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            className="h-8 w-40 border-transparent bg-transparent text-sm font-semibold hover:bg-muted focus:bg-muted md:w-56"
+            readOnly={!canEdit}
+            className={`h-8 w-40 border-transparent bg-transparent text-sm font-semibold md:w-56 ${canEdit ? "hover:bg-muted focus:bg-muted" : "cursor-default"}`}
           />
+          {userRole === "viewer" && (
+            <Badge variant="secondary" className="text-xs">View only</Badge>
+          )}
         </div>
 
         {/* Center: Mode Toggle */}
@@ -1156,7 +1183,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
                 key={m}
                 variant={mode === m ? "secondary" : "ghost"}
                 size="sm"
-                className={`h-7 rounded-md px-3 text-xs font-medium capitalize ${
+                className={`h-8 rounded-md px-4 text-sm font-medium capitalize ${
                   mode === m ? "shadow-sm" : "text-muted-foreground"
                 }`}
                 onClick={() => setMode(m)}
@@ -1282,7 +1309,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
             </div>
 
             {/* Floating selection toolbar */}
-            {selectionRange && floatingToolbarPos && mode === "edit" && (
+            {selectionRange && floatingToolbarPos && mode === "edit" && canEdit && (
               <div
                 className="fixed z-50 flex items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
                 style={{ left: floatingToolbarPos.x, top: floatingToolbarPos.y }}

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getDocumentContent, setDocumentContent } from "@/lib/yjs-utils";
 import { logEvent } from "@/lib/provenance";
 import { notifyChange } from "@/lib/realtime";
+import { getUserRole } from "@/lib/access";
 
 interface ReplaceOp {
   op: "replace";
@@ -105,6 +106,14 @@ export async function POST(
     }
 
     const { id } = await params;
+
+    const role = await getUserRole(id, userId);
+    if (!role) {
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
+    if (role === "viewer") {
+      return NextResponse.json({ error: "Viewers cannot edit this document" }, { status: 403 });
+    }
 
     const document = await prisma.document.findUnique({
       where: { id, archivedAt: null },

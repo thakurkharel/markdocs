@@ -117,7 +117,7 @@ function DocumentTable({
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 data-[popup-open]:opacity-100"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 data-[popup-open]:opacity-100"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <MoreHorizontal className="h-4 w-4" />
@@ -125,7 +125,7 @@ function DocumentTable({
                     <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                       {onShare && (
                         <DropdownMenuItem onClick={() => onShare(doc.id)}>
-                          <Share2 className="mr-2 h-3.5 w-3.5" />
+                          <Share2 className="mr-2 h-4 w-4" />
                           Share
                         </DropdownMenuItem>
                       )}
@@ -134,7 +134,7 @@ function DocumentTable({
                           className="text-destructive focus:text-destructive"
                           onClick={() => onDelete(doc.id)}
                         >
-                          <Trash2 className="mr-2 h-3.5 w-3.5" />
+                          <Trash2 className="mr-2 h-4 w-4" />
                           Delete
                         </DropdownMenuItem>
                       )}
@@ -309,8 +309,8 @@ export default function DashboardPage() {
         <section>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Your Documents</h2>
-            <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5" />
+            <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
               New Document
             </Button>
           </div>
@@ -330,8 +330,8 @@ export default function DashboardPage() {
               <p className="mt-1 mb-4 text-sm text-muted-foreground">
                 Create your first document to get started.
               </p>
-              <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-3.5 w-3.5" />
+              <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
                 New Document
               </Button>
             </div>
@@ -383,8 +383,8 @@ export default function DashboardPage() {
             autoFocus
           />
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate}>Create</Button>
+            <Button variant="ghost" size="lg" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button size="lg" onClick={handleCreate}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -399,8 +399,8 @@ export default function DashboardPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>
+            <Button variant="ghost" size="lg" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" size="lg" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>
               Delete
             </Button>
           </DialogFooter>

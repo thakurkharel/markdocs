@@ -3,7 +3,7 @@ import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { resolveUser } from "@/lib/users";
 import { logEvent } from "@/lib/provenance";
-import { hasAccess } from "@/lib/access";
+import { hasAccess, getUserRole } from "@/lib/access";
 
 export async function GET(
   request: NextRequest,
@@ -30,7 +30,8 @@ export async function GET(
     }
 
     const creator = await resolveUser(document.creatorId);
-    return NextResponse.json({ ...document, creator });
+    const userRole = await getUserRole(id, userId);
+    return NextResponse.json({ ...document, creator, userRole });
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch document" }, { status: 500 });
   }
@@ -50,8 +51,12 @@ export async function PATCH(
     const body = await request.json();
     const { title } = body;
 
-    if (!(await hasAccess(id, userId))) {
+    const role = await getUserRole(id, userId);
+    if (!role) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
+    if (role === "viewer") {
+      return NextResponse.json({ error: "Viewers cannot edit this document" }, { status: 403 });
     }
 
     const document = await prisma.document.findUnique({

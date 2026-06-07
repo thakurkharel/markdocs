@@ -3,6 +3,7 @@ import { getAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { getDocumentContent, setDocumentContent } from "@/lib/yjs-utils";
 import { logEvent } from "@/lib/provenance";
+import { getUserRole } from "@/lib/access";
 
 export async function GET(
   request: NextRequest,
@@ -42,6 +43,14 @@ export async function PUT(
     }
 
     const { id } = await params;
+
+    const role = await getUserRole(id, userId);
+    if (!role) {
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
+    if (role === "viewer") {
+      return NextResponse.json({ error: "Viewers cannot edit this document" }, { status: 403 });
+    }
 
     const document = await prisma.document.findUnique({
       where: { id, archivedAt: null },
