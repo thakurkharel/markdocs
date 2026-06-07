@@ -4,8 +4,8 @@
   "description": "CLI and MCP server for MarkDocs — collaborative markdown editor",
   "type": "module",
   "bin": {
-    "markdocs": "./dist/index.js",
-    "markdocs-mcp": "./dist/mcp.js"
+    "markdocs": "./bundle/markdocs.cjs",
+    "markdocs-mcp": "./bundle/markdocs-mcp.cjs"
   },
   "keywords": ["markdocs", "markdown", "cli", "mcp", "collaborative-editing"],
   "author": "Thakur Kharel",
@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc",
     "bundle": "node build.mjs",
+    "prepare": "node build.mjs",
     "dev": "tsx src/index.ts",
     "mcp": "tsx src/mcp.ts"
   },

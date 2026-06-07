@@ -511,12 +511,8 @@ export async function startMcpServer(): Promise<void> {
   await server.connect(transport);
 }
 
-// Allow running directly
-const isDirectRun =
-  process.argv[1]?.endsWith("mcp.ts") || process.argv[1]?.endsWith("mcp.js");
-if (isDirectRun) {
-  startMcpServer().catch((err) => {
-    console.error("Failed to start MCP server:", err);
-    process.exit(1);
-  });
-}
+// Always start when this file is the entry point
+startMcpServer().catch((err) => {
+  console.error("Failed to start MCP server:", err);
+  process.exit(1);
+});
