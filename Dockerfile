@@ -4,7 +4,12 @@ FROM node:22-alpine AS base
 FROM base AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# The lockfile is generated on macOS, which triggers npm's optional-dependency
+# bug (npm/cli#4828): `npm ci` won't install the linux-musl native binaries that
+# packages like lightningcss and @tailwindcss/oxide need, and the build fails with
+# "Cannot find native binding". Dropping the lockfile and running `npm install`
+# re-resolves all native deps for the actual build platform.
+RUN rm -f package-lock.json && npm install
 COPY . .
 RUN npx prisma generate
 RUN npm run build
